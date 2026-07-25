@@ -47,6 +47,12 @@ namespace OneNoteMarkdown.Features
                     return;
                 }
 
+                if (!OneNoteProvider.LooksLikeMarkdown(src))
+                {
+                    Logger.Info("RenderCurrentLine: source is not complete Markdown, skipping");
+                    return;
+                }
+
                 Logger.Info("RenderCurrentLine: src=" + src);
 
                 List<MarkdownBlock> blocks = MarkdownRenderer.RenderToBlocks(src);

@@ -860,6 +860,12 @@ namespace OneNoteMarkdown.OneNote
                 return;
             }
 
+            if (!IsSafeTextOeForInPlaceRender(targetOe))
+            {
+                Logger.Warn("ReplaceOeWithRenderedBlocks: refusing structural or rich-content OE, objectId=" + objectId);
+                return;
+            }
+
             // Build the new OE elements.
             List<XElement> newOes = BuildOeElements(blocks, nameToIndex, normalIndex, markdownSource);
             if (newOes.Count == 0) return;
@@ -890,6 +896,27 @@ namespace OneNoteMarkdown.OneNote
             }
 
             UpdatePage(pageDoc);
+        }
+
+        internal static bool IsSafeTextOeForInPlaceRender(XElement oe)
+        {
+            if (oe == null) return false;
+
+            // Enter rendering may rewrite only a leaf text OE. Containers and
+            // rich-content OEs can own diagrams, tables, images, attachments,
+            // or nested paragraphs and must never be replaced in place.
+            foreach (XElement child in oe.Elements())
+            {
+                if (child.Name != OneNs + "T" &&
+                    child.Name != OneNs + "List" &&
+                    child.Name != OneNs + "Tag" &&
+                    child.Name != OneNs + "Meta")
+                {
+                    return false;
+                }
+            }
+
+            return !oe.Descendants(OneNs + "OE").Any();
         }
 
         /// <summary>

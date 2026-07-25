@@ -1,6 +1,8 @@
 using System;
 using System.Linq;
+using System.Reflection;
 using System.Text;
+using System.Xml.Linq;
 using OneNoteMarkdown.Markdown;
 using OneNoteMarkdown.OneNote;
 
@@ -16,6 +18,8 @@ namespace OneNoteMarkdown.Tests
             Run("Markdown renderer", TestMarkdownRenderer);
             Run("HTML line breaks", TestHtmlLineBreaks);
             Run("Markdown source export", TestMarkdownSourceExport);
+            Run("Enter-render Markdown detection", TestEnterRenderMarkdownDetection);
+            Run("Nested OneNote selection safety", TestNestedOneNoteSelectionSafety);
 
             Console.WriteLine(_failures == 0
                 ? "All regression tests passed."
@@ -56,6 +60,68 @@ namespace OneNoteMarkdown.Tests
             string markdown = MarkdownExporter.Export(page);
             Assert(markdown.Contains(source), "Stored Markdown source was not restored.");
             Assert(!markdown.Contains("duplicate continuation"), "Continuation text was exported twice.");
+        }
+
+        private static void TestEnterRenderMarkdownDetection()
+        {
+            MethodInfo method = typeof(OneNoteProvider).GetMethod(
+                "LooksLikeMarkdown",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert(method != null, "Markdown detection method was not found.");
+
+            Func<string, bool> looksLikeMarkdown = value =>
+                (bool)method.Invoke(null, new object[] { value });
+
+            Assert(looksLikeMarkdown("欧拉公式 $e^{i\\pi}+1=0$"), "Complete inline LaTeX was not detected.");
+            Assert(looksLikeMarkdown("$$E=mc^2$$"), "Complete one-line block LaTeX was not detected.");
+            Assert(!looksLikeMarkdown("$$"), "An incomplete block LaTeX marker must not render on Enter.");
+            Assert(!looksLikeMarkdown("```csharp"), "An incomplete code fence must not render on Enter.");
+            Assert(!looksLikeMarkdown("x+y=z"), "Plain or native equation text must not be rewritten.");
+        }
+
+        private static void TestNestedOneNoteSelectionSafety()
+        {
+            XNamespace one = OneNs;
+            XDocument document = XDocument.Parse(
+                "<one:Page xmlns:one=\"" + OneNs + "\" ID=\"page1\">" +
+                "<one:Outline><one:OEChildren>" +
+                "<one:OE objectID=\"parent\" selected=\"partial\">" +
+                "<one:T><![CDATA[parent summary]]></one:T>" +
+                "<one:OEChildren><one:OE objectID=\"child\">" +
+                "<one:T selected=\"partial\"><![CDATA[# Child heading]]></one:T>" +
+                "</one:OE></one:OEChildren></one:OE>" +
+                "</one:OEChildren></one:Outline></one:Page>");
+
+            MethodInfo findMethod = typeof(OneNoteProvider).GetMethod(
+                "FindDeepestSelectedOe",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            MethodInfo extractMethod = typeof(OneNoteProvider).GetMethod(
+                "ExtractOeMarkdown",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            MethodInfo safetyMethod = typeof(PageWriter).GetMethod(
+                "IsSafeTextOeForInPlaceRender",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert(findMethod != null && extractMethod != null && safetyMethod != null,
+                "OneNote selection safety methods were not found.");
+
+            XElement selected = (XElement)findMethod.Invoke(null, new object[] { document });
+            Assert((string)selected.Attribute("objectID") == "child",
+                "The deepest selected OE was not chosen.");
+            Assert((string)extractMethod.Invoke(null, new object[] { selected }) == "# Child heading",
+                "Nested content leaked into the selected OE source.");
+
+            XElement parent = document.Descendants(one + "OE")
+                .First(element => (string)element.Attribute("objectID") == "parent");
+            Assert(!(bool)safetyMethod.Invoke(null, new object[] { parent }),
+                "A structural parent OE must never be replaced in place.");
+            Assert((bool)safetyMethod.Invoke(null, new object[] { selected }),
+                "A leaf text OE should remain renderable.");
+
+            XElement imageOe = XElement.Parse(
+                "<one:OE xmlns:one=\"" + OneNs + "\"><one:Image/></one:OE>");
+            Assert(!(bool)safetyMethod.Invoke(null, new object[] { imageOe }),
+                "An image OE must never be replaced in place.");
         }
 
         private static string PageXml(string oeXml)

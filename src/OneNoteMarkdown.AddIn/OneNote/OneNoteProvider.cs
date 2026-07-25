@@ -208,39 +208,10 @@ namespace OneNoteMarkdown.OneNote
             try { doc = XDocument.Parse(xml); }
             catch { return null; }
 
-            // Find the OE that is selected or contains selected text.
-            // OneNote marks the active OE (or its T children) with selected="all" or selected="partial".
-            XElement activeOe = null;
-
-            foreach (XElement oe in doc.Descendants(OneNs + "OE"))
-            {
-                // Check if this OE or any of its T children are selected.
-                bool selected = false;
-                string oeSel = (string)oe.Attribute("selected");
-                if (string.Equals(oeSel, "all", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(oeSel, "partial", StringComparison.OrdinalIgnoreCase))
-                {
-                    selected = true;
-                }
-                if (!selected)
-                {
-                    foreach (XElement t in oe.Elements(OneNs + "T"))
-                    {
-                        string tSel = (string)t.Attribute("selected");
-                        if (string.Equals(tSel, "all", StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals(tSel, "partial", StringComparison.OrdinalIgnoreCase))
-                        {
-                            selected = true;
-                            break;
-                        }
-                    }
-                }
-                if (selected)
-                {
-                    activeOe = oe;
-                    break;
-                }
-            }
+            // Complex content may mark both a parent container and its active
+            // child as selected. Choosing the first ancestor can replace an
+            // entire outline, so always choose the deepest selected OE.
+            XElement activeOe = FindDeepestSelectedOe(doc);
 
             if (activeOe == null) return null;
 
@@ -291,7 +262,7 @@ namespace OneNoteMarkdown.OneNote
         /// rendering on Enter. Plain prose (no markup) returns false so that
         /// ordinary line breaks are left untouched.
         /// </summary>
-        private static bool LooksLikeMarkdown(string src)
+        internal static bool LooksLikeMarkdown(string src)
         {
             if (string.IsNullOrWhiteSpace(src)) return false;
             string t = src.TrimStart();
@@ -302,8 +273,9 @@ namespace OneNoteMarkdown.OneNote
             if (Regex.IsMatch(t, @"^\d+[.)]\s+\S")) return true; // 1. ordered list
             if (Regex.IsMatch(t, @"^\[( |x|X)\]\s+\S")) return true; // [ ] task
             if (t.StartsWith(">")) return true;                  // blockquote
-            if (t.StartsWith("```") || t.StartsWith("~~~")) return true; // code fence
-            if (t == "$$" || t.StartsWith("$$")) return true;    // latex block
+            // Multi-line fences are rendered by F5 after the block is complete.
+            // A lone opening marker is incomplete and must not be rendered yet.
+            if (Regex.IsMatch(t, @"^\$\$.+\$\$$")) return true; // one-line latex block
             if (t.StartsWith("---") || t.StartsWith("***") || t.StartsWith("___")) return true; // hr
             if (t.StartsWith("|")) return true;                  // table row
 
@@ -316,6 +288,7 @@ namespace OneNoteMarkdown.OneNote
             if (Regex.IsMatch(src, @"\+\+[^+]+\+\+")) return true;      // underline
             if (Regex.IsMatch(src, @"`[^`]+`")) return true;            // inline code
             if (Regex.IsMatch(src, @"\[[^\]]+\]\([^)]+\)")) return true; // link/image
+            if (Regex.IsMatch(src, @"(?<!\\)\$(?!\$)(?:\\.|[^$\r\n])+\$")) return true; // inline latex
 
             return false;
         }
@@ -324,7 +297,39 @@ namespace OneNoteMarkdown.OneNote
         /// Reads the Markdown source of an OE: first the md-src Meta tag, then the
         /// visible text as fallback.
         /// </summary>
-        private static string ExtractOeMarkdown(XElement oe)
+        internal static XElement FindDeepestSelectedOe(XDocument doc)
+        {
+            if (doc == null) return null;
+
+            return doc.Descendants(OneNs + "OE")
+                .Where(IsSelectedOe)
+                .OrderByDescending(delegate(XElement oe)
+                {
+                    return oe.Ancestors(OneNs + "OE").Count();
+                })
+                .FirstOrDefault();
+        }
+
+        private static bool IsSelectedOe(XElement oe)
+        {
+            if (oe == null) return false;
+
+            string oeSelection = (string)oe.Attribute("selected");
+            if (string.Equals(oeSelection, "all", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(oeSelection, "partial", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return oe.Elements(OneNs + "T").Any(delegate(XElement text)
+            {
+                string textSelection = (string)text.Attribute("selected");
+                return string.Equals(textSelection, "all", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(textSelection, "partial", StringComparison.OrdinalIgnoreCase);
+            });
+        }
+
+        internal static string ExtractOeMarkdown(XElement oe)
         {
             if (oe == null) return string.Empty;
 
@@ -344,7 +349,9 @@ namespace OneNoteMarkdown.OneNote
             }
 
             List<string> parts = new List<string>();
-            foreach (XElement t in oe.Descendants(OneNs + "T"))
+            // Read only text owned by this OE. Descendant T elements can belong
+            // to nested paragraphs, images, diagrams, or other rich content.
+            foreach (XElement t in oe.Elements(OneNs + "T"))
             {
                 string plain = HtmlToPlainText(t.Value, true);
                 if (plain.Length > 0) parts.Add(plain);

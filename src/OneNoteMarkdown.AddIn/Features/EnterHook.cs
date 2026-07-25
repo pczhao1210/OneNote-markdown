@@ -13,6 +13,7 @@ namespace OneNoteMarkdown.Features
         private const int WH_KEYBOARD_LL = 13;
         private const int WM_KEYDOWN = 0x0100;
         private const int VK_RETURN = 0x0D;
+        private const int RenderDelayMilliseconds = 450;
 
         private static readonly object Gate = new object();
         private static IntPtr _hook;
@@ -20,6 +21,7 @@ namespace OneNoteMarkdown.Features
         private static volatile bool _running;
         private static LowLevelKeyboardProc _proc;
         private static Form _pumpForm;
+        private static System.Threading.Timer _renderTimer;
 
         private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
 
@@ -63,6 +65,13 @@ namespace OneNoteMarkdown.Features
                     _hook = IntPtr.Zero;
                 }
                 _running = false;
+
+                if (_renderTimer != null)
+                {
+                    try { _renderTimer.Dispose(); }
+                    catch { }
+                    _renderTimer = null;
+                }
 
                 if (_pumpForm != null && !_pumpForm.IsDisposed)
                 {
@@ -163,15 +172,71 @@ namespace OneNoteMarkdown.Features
                 try
                 {
                     KBDLLHOOKSTRUCT ks = (KBDLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(KBDLLHOOKSTRUCT));
-                    if (ks.vkCode == VK_RETURN && LivePreviewService.IsEnabled)
+                    if (ks.vkCode == VK_RETURN && LivePreviewService.IsEnabled && IsOneNoteForeground())
                     {
-                        Connect.PostToOneNoteThread(RenderCurrentLineCommand.Execute);
+                        Logger.Info("EnterHook: Enter accepted; scheduling render");
+                        ScheduleRenderAfterOneNoteCommit();
                     }
                 }
                 catch { }
             }
             return CallNextHookEx(_hook, nCode, wParam, lParam);
         }
+
+        private static void ScheduleRenderAfterOneNoteCommit()
+        {
+            lock (Gate)
+            {
+                if (_renderTimer != null)
+                {
+                    try { _renderTimer.Dispose(); }
+                    catch { }
+                }
+
+                _renderTimer = new System.Threading.Timer(delegate
+                {
+                    if (!LivePreviewService.IsEnabled) return;
+                    Connect.PostToOneNoteThread(RenderCurrentLineCommand.Execute);
+                }, null, RenderDelayMilliseconds, Timeout.Infinite);
+            }
+        }
+
+        private static bool IsOneNoteForeground()
+        {
+            IntPtr foreground = GetForegroundWindow();
+            if (foreground == IntPtr.Zero) return false;
+
+            uint processId;
+            GetWindowThreadProcessId(foreground, out processId);
+            if (IsOneNoteProcess(processId)) return true;
+
+            IntPtr rootOwner = GetAncestor(foreground, GA_ROOTOWNER);
+            if (rootOwner != IntPtr.Zero && rootOwner != foreground)
+            {
+                GetWindowThreadProcessId(rootOwner, out processId);
+                if (IsOneNoteProcess(processId)) return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsOneNoteProcess(uint processId)
+        {
+            if (processId == 0) return false;
+            if (processId == (uint)System.Diagnostics.Process.GetCurrentProcess().Id) return true;
+
+            try
+            {
+                string processName = System.Diagnostics.Process.GetProcessById((int)processId).ProcessName;
+                return string.Equals(processName, "ONENOTE", StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private const uint GA_ROOTOWNER = 3;
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
@@ -182,6 +247,15 @@ namespace OneNoteMarkdown.Features
 
         [DllImport("user32.dll")]
         private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetAncestor(IntPtr hWnd, uint flags);
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern IntPtr GetModuleHandle(string lpModuleName);
