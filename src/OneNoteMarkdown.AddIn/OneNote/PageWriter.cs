@@ -1,14 +1,18 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Microsoft.Office.Interop.OneNote;
 using OneNoteMarkdown.Logging;
 using OneNoteMarkdown.Markdown;
 using OneNoteMarkdown.OneNote.Interop;
+using OneNoteMarkdown.OneNote.Models;
 using OneNoteMarkdown.Rendering;
 using OneNoteMarkdown.Settings;
 
@@ -24,6 +28,7 @@ namespace OneNoteMarkdown.OneNote
         private static readonly Regex InlineLatexRegex = new Regex("(?<!\\$)\\$([^$\\r\\n]+?)\\$(?!\\$)", RegexOptions.Compiled);
         private static readonly Regex HighlightRegex = new Regex("==([^=\\r\\n]+?)==", RegexOptions.Compiled);
         private static readonly Regex UnderlineRegex = new Regex("(?<!\\+)\\+\\+([^+\\r\\n]+?)\\+\\+(?!\\+)", RegexOptions.Compiled);
+        private static readonly Regex LinkRegex = new Regex("(?<!!)\\[([^\\]]+)\\]\\(([^)]+)\\)", RegexOptions.Compiled);
 
         // Cached settings: loaded once per add-in lifetime, re-loaded if null (e.g. first use).
         // Access via GetTheme() only; do not read _theme directly in instance methods.
@@ -63,6 +68,8 @@ namespace OneNoteMarkdown.OneNote
         public static void InvalidateThemeCache()
         {
             _theme = null;
+            LatexImageRenderer.ClearCache();
+            DiagramImageRenderer.ClearCache();
         }
 
         public void AppendOutline(string pageId, string content, string heading)
@@ -134,6 +141,117 @@ namespace OneNoteMarkdown.OneNote
             }
 
             UpdatePage(pageDoc);
+        }
+
+        internal PreviewUpdateStatus UpsertManagedPreview(
+            PreviewSource source,
+            IList<MarkdownBlock> blocks,
+            PreviewWriteOptions options)
+        {
+            if (source == null) throw new ArgumentNullException(nameof(source));
+            if (options == null) throw new ArgumentNullException(nameof(options));
+            ValidatePageId(source.PageId);
+            if (string.IsNullOrWhiteSpace(source.SourceKey)) throw new ArgumentException("Source key cannot be empty.", nameof(source));
+            if (string.IsNullOrWhiteSpace(options.Role)) throw new ArgumentException("Role cannot be empty.", nameof(options));
+            if (blocks == null) throw new ArgumentNullException(nameof(blocks));
+
+            List<MarkdownBlock> effective = blocks.Where(delegate(MarkdownBlock block) { return block != null; }).ToList();
+            if (effective.Count == 0) throw new ArgumentException("Blocks cannot be empty.", nameof(blocks));
+
+            XDocument pageDoc = GetPageDocument(source.PageId);
+            XElement pageElement = pageDoc.Root;
+            string encodedSourceKey = EncodeMeta(source.SourceKey);
+            XElement existing = FindManagedOutline(pageElement, options.Role, encodedSourceKey);
+            string sourceHash = ComputeHash(NormalizeMarkdown(source.Markdown) + "\n" + GetTheme().RenderFingerprint);
+
+            if (existing != null)
+            {
+                string storedBodyHash = ReadMeta(existing, "md-preview-body-hash");
+                string actualBodyHash = ComputeManagedBodyHash(existing);
+                if (!string.IsNullOrEmpty(storedBodyHash) &&
+                    !string.Equals(storedBodyHash, actualBodyHash, StringComparison.Ordinal) &&
+                    !options.OverwriteUserChanges)
+                {
+                    return PreviewUpdateStatus.Conflict;
+                }
+
+                string storedSourceHash = ReadMeta(existing, "md-preview-source-hash");
+                if (!options.ForceLayout &&
+                    string.Equals(storedSourceHash, sourceHash, StringComparison.Ordinal) &&
+                    (string.IsNullOrEmpty(storedBodyHash) || string.Equals(storedBodyHash, actualBodyHash, StringComparison.Ordinal)))
+                {
+                    return PreviewUpdateStatus.Unchanged;
+                }
+            }
+
+            HashSet<string> needed = CollectNeededStyleNames(options.Title, effective);
+            Dictionary<string, int> nameToIndex = EnsurePageQuickStyles(pageElement, needed);
+
+            string previewId = existing == null ? Guid.NewGuid().ToString("N") : ReadMeta(existing, "md-preview-id");
+            if (string.IsNullOrWhiteSpace(previewId)) previewId = Guid.NewGuid().ToString("N");
+
+            double x;
+            double y;
+            double width;
+            double height;
+            ResolvePreviewLayout(source, existing, options, out x, out y, out width, out height);
+
+            string title = string.Empty;
+            bool showTitle = false;
+            if (existing == null || options.ApplyTitleDefaults)
+            {
+                showTitle = options.ShowTitle && !string.IsNullOrWhiteSpace(options.Title);
+                title = showTitle ? options.Title.Trim() : string.Empty;
+            }
+            else
+            {
+                XElement existingTitle = FindPreviewTitleOe(existing);
+                if (existingTitle != null)
+                {
+                    title = ReadOeText(existingTitle);
+                    showTitle = !string.IsNullOrWhiteSpace(title);
+                }
+            }
+
+            XElement outlineElement = CreateOutlineElement(x, y, width, height, showTitle ? title : string.Empty, effective, nameToIndex);
+            MarkManagedPreview(
+                outlineElement,
+                previewId,
+                options.Role,
+                encodedSourceKey,
+                sourceHash,
+                source.Markdown,
+                showTitle);
+
+            if (existing == null)
+            {
+                pageElement.Add(outlineElement);
+            }
+            else
+            {
+                existing.ReplaceWith(outlineElement);
+            }
+
+            UpdatePage(pageDoc);
+            return existing == null ? PreviewUpdateStatus.Created : PreviewUpdateStatus.Updated;
+        }
+
+        internal bool DeleteManagedPreview(string pageId, string objectId)
+        {
+            ValidatePageId(pageId);
+            if (string.IsNullOrWhiteSpace(objectId)) return false;
+
+            XDocument pageDoc = GetPageDocument(pageId);
+            XElement target = pageDoc.Descendants(OneNs + "OE").FirstOrDefault(delegate(XElement oe)
+            {
+                return string.Equals((string)oe.Attribute("objectID"), objectId, StringComparison.Ordinal);
+            });
+            XElement outline = target == null ? null : target.Ancestors(OneNs + "Outline").FirstOrDefault();
+            if (outline == null || string.IsNullOrWhiteSpace(ReadMeta(outline, "md-preview-id"))) return false;
+
+            outline.Remove();
+            UpdatePage(pageDoc);
+            return true;
         }
 
         internal void UpsertManagedSource(string pageId, string role, string markdown, string heading)
@@ -297,13 +415,13 @@ namespace OneNoteMarkdown.OneNote
             switch (name.ToLowerInvariant())
             {
                 case "pagetitle": fontSize = "20.0"; break;
-                case "h1": fontSize = "16.0"; break;
-                case "h2": fontSize = "14.0"; break;
-                case "h3": fontSize = "12.0"; break;
-                case "h4": fontSize = paraSize; break;
-                case "h5": fontSize = paraSize; break;
-                case "h6": fontSize = paraSize; break;
-                case "code": fontSize = codeSize; font = GetTheme().MonospaceFontFamily; fontColor = "#1f1f1f"; highlightColor = "#f5f5f5"; break;
+                case "h1": fontSize = "16.0"; fontColor = GetTheme().HeadingColor; break;
+                case "h2": fontSize = "14.0"; fontColor = GetTheme().HeadingColor; break;
+                case "h3": fontSize = "12.0"; fontColor = GetTheme().HeadingColor; break;
+                case "h4": fontSize = paraSize; fontColor = GetTheme().HeadingColor; break;
+                case "h5": fontSize = paraSize; fontColor = GetTheme().HeadingColor; break;
+                case "h6": fontSize = paraSize; fontColor = GetTheme().HeadingColor; break;
+                case "code": fontSize = codeSize; font = GetTheme().MonospaceFontFamily; fontColor = "#1f1f1f"; highlightColor = GetTheme().CodeBackgroundColor; break;
                 case "diagram": fontSize = codeSize; font = GetTheme().MonospaceFontFamily; break;
                 case "latex": fontSize = paraSize; font = GetTheme().MathFontFamily; break;
                 case "toc": fontSize = "10.5"; break;
@@ -342,6 +460,18 @@ namespace OneNoteMarkdown.OneNote
             });
         }
 
+        private static XElement FindManagedOutline(XElement pageElement, string role, string encodedSourceKey)
+        {
+            if (pageElement == null) return null;
+            return pageElement.Elements(OneNs + "Outline").FirstOrDefault(delegate(XElement outline)
+            {
+                string candidateRole = ReadMeta(outline, "md-preview-role");
+                string candidateSourceKey = ReadMeta(outline, "md-preview-source-key");
+                return string.Equals(candidateRole, role, StringComparison.Ordinal) &&
+                    string.Equals(candidateSourceKey, encodedSourceKey, StringComparison.Ordinal);
+            });
+        }
+
         private static string StripHtml(string html)
         {
             if (string.IsNullOrWhiteSpace(html)) return string.Empty;
@@ -355,6 +485,18 @@ namespace OneNoteMarkdown.OneNote
             XElement pos = outline.Element(OneNs + "Position");
             if (pos == null) return fallback;
             return ParseDouble((string)pos.Attribute("y"), fallback);
+        }
+
+        private static double ReadOutlineX(XElement outline, double fallback)
+        {
+            XElement position = outline == null ? null : outline.Element(OneNs + "Position");
+            return position == null ? fallback : ParseDouble((string)position.Attribute("x"), fallback);
+        }
+
+        private static double ReadOutlineDimension(XElement outline, string attribute, double fallback)
+        {
+            XElement size = outline == null ? null : outline.Element(OneNs + "Size");
+            return size == null ? fallback : ParseDouble((string)size.Attribute(attribute), fallback);
         }
 
         private void UpdatePage(XDocument pageDoc)
@@ -410,10 +552,29 @@ namespace OneNoteMarkdown.OneNote
 
         private XElement CreateOutlineElement(double y, string heading, IList<MarkdownBlock> blocks, Dictionary<string, int> nameToIndex)
         {
+            return CreateOutlineElement(36d, y, 0d, 0d, heading, blocks, nameToIndex);
+        }
+
+        private XElement CreateOutlineElement(
+            double x,
+            double y,
+            double width,
+            double height,
+            string heading,
+            IList<MarkdownBlock> blocks,
+            Dictionary<string, int> nameToIndex)
+        {
             XElement outline = new XElement(OneNs + "Outline",
                 new XElement(OneNs + "Position",
-                    new XAttribute("x", FormatDouble(36d)),
+                    new XAttribute("x", FormatDouble(x)),
                     new XAttribute("y", FormatDouble(y))));
+            if (width > 0d)
+            {
+                outline.Add(new XElement(OneNs + "Size",
+                    new XAttribute("width", FormatDouble(width)),
+                    new XAttribute("height", FormatDouble(height > 0d ? height : 100d)),
+                    new XAttribute("isSetByUser", "true")));
+            }
 
             XElement childrenElement = new XElement(OneNs + "OEChildren");
             int normalIndex = LookupStyle(nameToIndex, "p");
@@ -482,12 +643,18 @@ namespace OneNoteMarkdown.OneNote
                         break;
                     case MarkdownBlockKind.Blockquote:
                         styleIndex = normalIndex;
-                        text = "❝ " + (block.Text ?? string.Empty);
+                        text = GetTheme().QuotePrefix + (block.Text ?? string.Empty);
                         childrenElement.Add(CreateStyledOe(text, styleIndex, false, true));
                         break;
                     case MarkdownBlockKind.HorizontalRule:
                         styleIndex = normalIndex;
                         childrenElement.Add(CreateStyledOe(new string('─', 30), styleIndex, false, false));
+                        break;
+                    case MarkdownBlockKind.Table:
+                        childrenElement.Add(CreateTableOe(block, normalIndex));
+                        break;
+                    case MarkdownBlockKind.Image:
+                        childrenElement.Add(CreateMarkdownImageOe(block, normalIndex));
                         break;
                     default:
                         styleIndex = normalIndex;
@@ -628,11 +795,17 @@ namespace OneNoteMarkdown.OneNote
                 byte[] pngBytes;
                 int pixelWidth;
                 int pixelHeight;
-                if (renderer.TryRenderToPng(latex, GetTheme().MathFontFamily, out pngBytes, out pixelWidth, out pixelHeight))
+                string error;
+                if (renderer.TryRenderToPng(latex, GetTheme().MathFontFamily, out pngBytes, out pixelWidth, out pixelHeight, out error))
                 {
                     return CreateImageOe(pngBytes, pixelWidth, pixelHeight, styleIndex, "LaTeX");
                 }
-                Logger.Warn("CreateLatexOe: WpfMath render failed, fallback to plain text.");
+                Logger.Warn("CreateLatexOe: WpfMath render failed; source retained.");
+                return CreateStyledOe(
+                    "[LaTeX render failed: " + error + "]\n" + fallbackText,
+                    styleIndex,
+                    true,
+                    false);
             }
 
             return CreateStyledOe(fallbackText, styleIndex, true, false);
@@ -668,10 +841,82 @@ namespace OneNoteMarkdown.OneNote
 
         private XElement CreateDiagramOe(MarkdownBlock block, int styleIndex, string fallbackText)
         {
-            // Safety-first fallback: keep diagram source as text block.
-            // Image injection for diagrams will be re-enabled after schema-
-            // level validation on multiple OneNote builds.
-            return CreateStyledOe(fallbackText, styleIndex, true, false);
+            DiagramImageRenderer renderer = new DiagramImageRenderer();
+            byte[] pngBytes;
+            int width;
+            int height;
+            string error;
+            if (renderer.TryRenderToPng(
+                block == null ? string.Empty : block.CodeLanguage,
+                block == null ? string.Empty : block.Text,
+                GetTheme().DiagramTimeoutMilliseconds,
+                out pngBytes,
+                out width,
+                out height,
+                out error))
+            {
+                return CreateImageOe(pngBytes, width, height, styleIndex, "Mermaid");
+            }
+
+            string language = block == null ? "diagram" : (block.CodeLanguage ?? "diagram");
+            string source = block == null ? string.Empty : (block.Text ?? string.Empty);
+            string completeSource = "```" + language + "\n" + source + "\n```";
+            return CreateStyledOe(
+                "[" + language + " render failed: " + error + "]\n" + completeSource,
+                styleIndex,
+                true,
+                false);
+        }
+
+        private XElement CreateTableOe(MarkdownBlock block, int styleIndex)
+        {
+            List<List<string>> rows = block == null ? null : block.TableRows;
+            if (rows == null || rows.Count == 0) return CreateStyledOe(string.Empty, styleIndex);
+
+            int columnCount = rows.Max(delegate(List<string> row) { return row == null ? 0 : row.Count; });
+            if (columnCount <= 0) return CreateStyledOe(string.Empty, styleIndex);
+
+            XElement table = new XElement(OneNs + "Table", new XAttribute("bordersVisible", "true"));
+            XElement columns = new XElement(OneNs + "Columns");
+            for (int column = 0; column < columnCount; column++)
+            {
+                columns.Add(new XElement(OneNs + "Column",
+                    new XAttribute("index", column.ToString(CultureInfo.InvariantCulture)),
+                    new XAttribute("width", "160")));
+            }
+            table.Add(columns);
+
+            for (int rowIndex = 0; rowIndex < rows.Count; rowIndex++)
+            {
+                List<string> row = rows[rowIndex] ?? new List<string>();
+                XElement rowElement = new XElement(OneNs + "Row");
+                for (int column = 0; column < columnCount; column++)
+                {
+                    string value = column < row.Count ? row[column] : string.Empty;
+                    if (rowIndex == 0 && value.Length > 0) value = "**" + value + "**";
+                    XElement cellText = CreateStyledOe(value, styleIndex, false, true);
+                    rowElement.Add(new XElement(OneNs + "Cell",
+                        new XElement(OneNs + "OEChildren", cellText)));
+                }
+                table.Add(rowElement);
+            }
+
+            return new XElement(OneNs + "OE", table);
+        }
+
+        private XElement CreateMarkdownImageOe(MarkdownBlock block, int styleIndex)
+        {
+            string target = block == null ? string.Empty : (block.Target ?? string.Empty).Trim();
+            byte[] bytes;
+            int width;
+            int height;
+            if (TryLoadImage(target, out bytes, out width, out height))
+            {
+                return CreateImageOe(bytes, width, height, styleIndex, block == null ? string.Empty : block.Text);
+            }
+
+            string fallback = "![" + (block == null ? string.Empty : block.Text ?? string.Empty) + "](" + target + ")";
+            return CreateStyledOe(fallback, styleIndex, false, false);
         }
 
         private static string BuildTocPlaceholder(IList<MarkdownBlock> blocks)
@@ -791,6 +1036,26 @@ namespace OneNoteMarkdown.OneNote
                 return "@@CODE" + (codeReplacements.Count - 1).ToString(CultureInfo.InvariantCulture) + "@@";
             });
 
+            protectedText = LinkRegex.Replace(protectedText, delegate(Match match)
+            {
+                string target = WebUtility.HtmlDecode(match.Groups[2].Value).Trim();
+                Uri uri;
+                bool isAbsolute = Uri.TryCreate(target, UriKind.Absolute, out uri);
+                if (isAbsolute &&
+                    !string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(uri.Scheme, Uri.UriSchemeMailto, StringComparison.OrdinalIgnoreCase) &&
+                    !uri.IsFile)
+                {
+                    return match.Value;
+                }
+                if (!isAbsolute && (target.IndexOf(':') >= 0 || target.StartsWith("//", StringComparison.Ordinal)))
+                {
+                    return match.Value;
+                }
+                return "<a href=\"" + WebUtility.HtmlEncode(target) + "\">" + match.Groups[1].Value + "</a>";
+            });
+
             protectedText = BoldRegex.Replace(protectedText, "<span style=\"font-weight:bold;\">$1</span>");
             protectedText = StrikeRegex.Replace(protectedText, "<span style=\"text-decoration:line-through;\">$1</span>");
             protectedText = HighlightRegex.Replace(protectedText, "<span style=\"background-color:#ffff00;\">$1</span>");
@@ -816,6 +1081,246 @@ namespace OneNoteMarkdown.OneNote
             double parsed;
             if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out parsed)) return parsed;
             return defaultValue;
+        }
+
+        private static void ResolvePreviewLayout(
+            PreviewSource source,
+            XElement existing,
+            PreviewWriteOptions options,
+            out double x,
+            out double y,
+            out double width,
+            out double height)
+        {
+            width = options.Width > 0d ? options.Width : 520d;
+            height = 100d;
+            if (existing != null && !options.ForceLayout)
+            {
+                x = ReadOutlineX(existing, 36d);
+                XElement position = existing.Element(OneNs + "Position");
+                y = position == null ? 200d : ParseDouble((string)position.Attribute("y"), 200d);
+                width = ReadOutlineDimension(existing, "width", width);
+                height = ReadOutlineDimension(existing, "height", height);
+                return;
+            }
+
+            double gap = options.Gap < 0d ? 0d : options.Gap;
+            if (source.HasBounds)
+            {
+                if (options.Placement == PreviewPlacement.Below)
+                {
+                    x = source.Left;
+                    y = source.Bottom + gap;
+                }
+                else
+                {
+                    x = source.Right + gap;
+                    y = source.Top;
+                }
+                return;
+            }
+
+            x = 36d;
+            y = 200d;
+        }
+
+        private static void MarkManagedPreview(
+            XElement outline,
+            string previewId,
+            string role,
+            string encodedSourceKey,
+            string sourceHash,
+            string markdownSource,
+            bool hasTitle)
+        {
+            if (outline == null) return;
+            List<XElement> oes = outline.Element(OneNs + "OEChildren") == null
+                ? new List<XElement>()
+                : outline.Element(OneNs + "OEChildren").Elements(OneNs + "OE").ToList();
+            if (oes.Count == 0) return;
+
+            int contentStart = 0;
+            if (hasTitle)
+            {
+                AddMeta(oes[0], "md-preview-title", "true");
+                contentStart = 1;
+            }
+            if (contentStart >= oes.Count) return;
+
+            List<XElement> content = oes.Skip(contentStart).ToList();
+            string bodyHash = ComputeBodyHash(content);
+            for (int i = 0; i < content.Count; i++)
+            {
+                AddMeta(content[i], "md-preview-group", previewId);
+            }
+
+            XElement anchor = content[0];
+            AddMeta(anchor, "md-preview-id", previewId);
+            AddMeta(anchor, "md-preview-role", role);
+            AddMeta(anchor, "md-preview-source-key", encodedSourceKey);
+            AddMeta(anchor, "md-preview-source-hash", sourceHash);
+            AddMeta(anchor, "md-preview-body-hash", bodyHash);
+            AddMeta(anchor, "md-preview-source", EncodeMeta(NormalizeMarkdown(markdownSource)));
+        }
+
+        private static XElement FindPreviewTitleOe(XElement outline)
+        {
+            return outline == null ? null : outline.Descendants(OneNs + "OE").FirstOrDefault(delegate(XElement oe)
+            {
+                return oe.Elements(OneNs + "Meta").Any(delegate(XElement meta)
+                {
+                    return string.Equals((string)meta.Attribute("name"), "md-preview-title", StringComparison.Ordinal);
+                });
+            });
+        }
+
+        private static string ReadOeText(XElement oe)
+        {
+            if (oe == null) return string.Empty;
+            XElement text = oe.Element(OneNs + "T");
+            return text == null ? string.Empty : StripHtml(text.Value);
+        }
+
+        private static string ComputeManagedBodyHash(XElement outline)
+        {
+            if (outline == null) return string.Empty;
+            List<XElement> content = outline.Descendants(OneNs + "OE").Where(delegate(XElement oe)
+            {
+                return oe.Elements(OneNs + "Meta").Any(delegate(XElement meta)
+                {
+                    return string.Equals((string)meta.Attribute("name"), "md-preview-group", StringComparison.Ordinal);
+                });
+            }).ToList();
+            return ComputeBodyHash(content);
+        }
+
+        private static string ComputeBodyHash(IEnumerable<XElement> content)
+        {
+            StringBuilder value = new StringBuilder();
+            foreach (XElement oe in content ?? Enumerable.Empty<XElement>())
+            {
+                value.Append("OE|");
+                foreach (XElement text in oe.DescendantsAndSelf(OneNs + "T"))
+                {
+                    value.Append("T:").Append(NormalizeManagedText(text.Value)).Append('|');
+                }
+                foreach (XElement data in oe.Descendants(OneNs + "Data"))
+                {
+                    value.Append("D:").Append(Regex.Replace(data.Value ?? string.Empty, "\\s+", string.Empty)).Append('|');
+                }
+            }
+            return ComputeHash(value.ToString());
+        }
+
+        private static string NormalizeManagedText(string html)
+        {
+            string value = Regex.Replace(html ?? string.Empty, "<[^>]+>", string.Empty);
+            return WebUtility.HtmlDecode(value)
+                .Replace('\u00a0', ' ')
+                .Replace("\r\n", "\n")
+                .Replace('\r', '\n');
+        }
+
+        private static string ReadMeta(XElement container, string name)
+        {
+            if (container == null || string.IsNullOrEmpty(name)) return string.Empty;
+            XElement meta = container.DescendantsAndSelf(OneNs + "Meta").FirstOrDefault(delegate(XElement candidate)
+            {
+                return string.Equals((string)candidate.Attribute("name"), name, StringComparison.Ordinal);
+            });
+            return meta == null ? string.Empty : ((string)meta.Attribute("content") ?? string.Empty);
+        }
+
+        private static void AddMeta(XElement oe, string name, string content)
+        {
+            oe.AddFirst(new XElement(OneNs + "Meta",
+                new XAttribute("name", name),
+                new XAttribute("content", content ?? string.Empty)));
+        }
+
+        private static string EncodeMeta(string value)
+        {
+            return Convert.ToBase64String(Encoding.UTF8.GetBytes(value ?? string.Empty));
+        }
+
+        private static string NormalizeMarkdown(string value)
+        {
+            return (value ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n');
+        }
+
+        private static string ComputeHash(string value)
+        {
+            using (SHA256 sha = SHA256.Create())
+            {
+                byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes(value ?? string.Empty));
+                return Convert.ToBase64String(hash);
+            }
+        }
+
+        private static bool TryLoadImage(string target, out byte[] pngBytes, out int pixelWidth, out int pixelHeight)
+        {
+            pngBytes = null;
+            pixelWidth = 0;
+            pixelHeight = 0;
+            if (string.IsNullOrWhiteSpace(target)) return false;
+
+            try
+            {
+                byte[] sourceBytes;
+                Uri uri;
+                if (Uri.TryCreate(target, UriKind.Absolute, out uri) &&
+                    (string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+                {
+                    if (!GetTheme().AllowRemoteImages) return false;
+                    HttpWebRequest request = (HttpWebRequest)WebRequest.Create(uri);
+                    request.Timeout = 5000;
+                    request.ReadWriteTimeout = 5000;
+                    request.MaximumResponseHeadersLength = 32;
+                    using (WebResponse response = request.GetResponse())
+                    using (Stream input = response.GetResponseStream())
+                    using (MemoryStream downloaded = new MemoryStream())
+                    {
+                        if (response.ContentLength > 10L * 1024L * 1024L) return false;
+                        byte[] buffer = new byte[81920];
+                        int total = 0;
+                        int read;
+                        while (input != null && (read = input.Read(buffer, 0, buffer.Length)) > 0)
+                        {
+                            total += read;
+                            if (total > 10 * 1024 * 1024) return false;
+                            downloaded.Write(buffer, 0, read);
+                        }
+                        sourceBytes = downloaded.ToArray();
+                    }
+                }
+                else
+                {
+                    string path = target;
+                    if (Uri.TryCreate(target, UriKind.Absolute, out uri) && uri.IsFile) path = uri.LocalPath;
+                    if (!Path.IsPathRooted(path) || !File.Exists(path)) return false;
+                    FileInfo info = new FileInfo(path);
+                    if (info.Length <= 0 || info.Length > 10L * 1024L * 1024L) return false;
+                    sourceBytes = File.ReadAllBytes(path);
+                }
+
+                using (MemoryStream source = new MemoryStream(sourceBytes))
+                using (System.Drawing.Image image = System.Drawing.Image.FromStream(source, true, true))
+                using (System.Drawing.Bitmap bitmap = new System.Drawing.Bitmap(image))
+                using (MemoryStream png = new MemoryStream())
+                {
+                    bitmap.Save(png, System.Drawing.Imaging.ImageFormat.Png);
+                    pngBytes = png.ToArray();
+                    pixelWidth = bitmap.Width;
+                    pixelHeight = bitmap.Height;
+                    return pngBytes.Length > 0;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn("Image render failed: " + ex.Message);
+                return false;
+            }
         }
 
         private static string FormatDouble(double value)
@@ -863,6 +1368,17 @@ namespace OneNoteMarkdown.OneNote
             if (!IsSafeTextOeForInPlaceRender(targetOe))
             {
                 Logger.Warn("ReplaceOeWithRenderedBlocks: refusing structural or rich-content OE, objectId=" + objectId);
+                return;
+            }
+
+            bool alreadyRendered = targetOe.Elements(OneNs + "Meta").Any(delegate(XElement meta)
+            {
+                return string.Equals((string)meta.Attribute("name"), "md-src", StringComparison.Ordinal);
+            });
+            if (!alreadyRendered &&
+                !string.Equals(ReadOeText(targetOe), (markdownSource ?? string.Empty).Trim(), StringComparison.Ordinal))
+            {
+                Logger.Warn("ReplaceOeWithRenderedBlocks: source changed before delayed render, objectId=" + objectId);
                 return;
             }
 
@@ -938,9 +1454,26 @@ namespace OneNoteMarkdown.OneNote
                 });
             if (targetOe == null) return;
 
-            // Clear existing T children and meta, write raw source as plain T.
-            targetOe.Elements(OneNs + "T").Remove();
-            targetOe.Elements(OneNs + "Meta").Remove();
+            string groupId = ReadDirectMeta(targetOe, "md-render-group");
+            if (!string.IsNullOrWhiteSpace(groupId))
+            {
+                XElement anchor = pageElement.Descendants(OneNs + "OE").FirstOrDefault(delegate(XElement oe)
+                {
+                    return string.Equals(ReadDirectMeta(oe, "md-render-group"), groupId, StringComparison.Ordinal)
+                        && !string.IsNullOrEmpty(ReadDirectMeta(oe, "md-src"));
+                });
+                if (anchor != null) targetOe = anchor;
+
+                List<XElement> continuations = pageElement.Descendants(OneNs + "OE").Where(delegate(XElement oe)
+                {
+                    return !ReferenceEquals(oe, targetOe)
+                        && string.Equals(ReadDirectMeta(oe, "md-render-group"), groupId, StringComparison.Ordinal);
+                }).ToList();
+                for (int i = 0; i < continuations.Count; i++) continuations[i].Remove();
+            }
+
+            // Replace the complete rendered group with one raw-source OE.
+            targetOe.RemoveNodes();
             targetOe.Attribute("quickStyleIndex")?.Remove();
             targetOe.Add(new XElement(OneNs + "T", new XCData(SanitizeCData(WebUtility.HtmlEncode(markdownSource)))));
 
@@ -951,6 +1484,7 @@ namespace OneNoteMarkdown.OneNote
         {
             List<XElement> result = new List<XElement>();
             List<XElement> lastListItemByIndent = new List<XElement>();
+            string groupId = Guid.NewGuid().ToString("N");
 
             // Encode the Markdown source for storage in Meta.
             string mdBase64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(markdownSource ?? string.Empty));
@@ -1030,11 +1564,17 @@ namespace OneNoteMarkdown.OneNote
                             oe = CreateStyledOe(text, styleIndex, false, false);
                             break;
                         case MarkdownBlockKind.Blockquote:
-                            text = "❝ " + (block.Text ?? string.Empty);
+                            text = GetTheme().QuotePrefix + (block.Text ?? string.Empty);
                             oe = CreateStyledOe(text, normalIndex, false, true);
                             break;
                         case MarkdownBlockKind.HorizontalRule:
                             oe = CreateStyledOe(new string('─', 30), normalIndex, false, false);
+                            break;
+                        case MarkdownBlockKind.Table:
+                            oe = CreateTableOe(block, normalIndex);
+                            break;
+                        case MarkdownBlockKind.Image:
+                            oe = CreateMarkdownImageOe(block, normalIndex);
                             break;
                         default:
                             text = block.Text ?? string.Empty;
@@ -1063,7 +1603,22 @@ namespace OneNoteMarkdown.OneNote
                 result.Add(oe);
             }
 
+            for (int i = 0; i < result.Count; i++)
+            {
+                AddMeta(result[i], "md-render-group", groupId);
+            }
+
             return result;
+        }
+
+        private static string ReadDirectMeta(XElement oe, string name)
+        {
+            if (oe == null) return string.Empty;
+            XElement meta = oe.Elements(OneNs + "Meta").FirstOrDefault(delegate(XElement candidate)
+            {
+                return string.Equals((string)candidate.Attribute("name"), name, StringComparison.Ordinal);
+            });
+            return meta == null ? string.Empty : ((string)meta.Attribute("content") ?? string.Empty);
         }
 
         private void ValidatePageId(string pageId)

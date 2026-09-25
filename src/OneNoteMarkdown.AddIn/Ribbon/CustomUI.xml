@@ -8,6 +8,11 @@
           <button id="btnExportMarkdownClipboard" getLabel="GetLabel" onAction="OnExportMarkdownClipboard" size="large" imageMso="Copy" getScreentip="GetScreentip" getSupertip="GetSupertip"/>
           <button id="btnRenderSelection" getLabel="GetLabel" onAction="OnRenderSelection" size="large" imageMso="Paste" getScreentip="GetScreentip" getSupertip="GetSupertip"/>
           <button id="btnRenderPage" getLabel="GetLabel" onAction="OnRenderPage" size="large" imageMso="ReviewAcceptChange" getScreentip="GetScreentip" getSupertip="GetSupertip"/>
+          <button id="btnRenderOutline" getLabel="GetLabel" onAction="OnRenderOutline" size="large" imageMso="ObjectEdit" getScreentip="GetScreentip" getSupertip="GetSupertip"/>
+          <button id="btnJumpPreviewSource" getLabel="GetLabel" onAction="OnJumpPreviewSource" imageMso="GoTo" getScreentip="GetScreentip" getSupertip="GetSupertip"/>
+          <button id="btnResetPreviewLayout" getLabel="GetLabel" onAction="OnResetPreviewLayout" imageMso="ObjectBringToFront" getScreentip="GetScreentip" getSupertip="GetSupertip"/>
+          <button id="btnApplyPreviewDefaults" getLabel="GetLabel" onAction="OnApplyPreviewDefaults" imageMso="FormatPainter" getScreentip="GetScreentip" getSupertip="GetSupertip"/>
+          <button id="btnDeletePreview" getLabel="GetLabel" onAction="OnDeletePreview" imageMso="Delete" getScreentip="GetScreentip" getSupertip="GetSupertip"/>
           <toggleButton id="btnToggleLivePreview" getLabel="GetLabel" onAction="OnToggleLivePreview" getPressed="GetLivePreviewPressed" size="large" imageMso="Refresh" getScreentip="GetScreentip" getSupertip="GetSupertip"/>
           <button id="btnMarkdownSettings" getLabel="GetLabel" onAction="OnSettings" size="large" imageMso="FileSave" getScreentip="GetScreentip" getSupertip="GetSupertip"/>
           <button id="btnMarkdownHelp" getLabel="GetLabel" onAction="OnHelp" size="large" imageMso="Help" getScreentip="GetScreentip" getSupertip="GetSupertip"/>

@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
@@ -35,8 +37,29 @@ namespace OneNoteMarkdown.OneNote
             {
                 OutlineContent outline = new OutlineContent
                 {
-                    OutlineId = (string)outlineElement.Attribute("objectID") ?? (string)outlineElement.Attribute("ID") ?? string.Empty
+                    OutlineId = (string)outlineElement.Attribute("objectID") ?? (string)outlineElement.Attribute("ID") ?? string.Empty,
+                    ManagedRole = ReadMeta(outlineElement, "md-preview-role"),
+                    ManagedSource = DecodeMeta(ReadMeta(outlineElement, "md-preview-source"))
                 };
+                outline.IsManagedPreview = !string.IsNullOrWhiteSpace(outline.ManagedRole)
+                    || !string.IsNullOrWhiteSpace(ReadMeta(outlineElement, "md-preview-id"));
+                if (outline.IsManagedPreview)
+                {
+                    string expectedBodyHash = ReadMeta(outlineElement, "md-preview-body-hash");
+                    string actualBodyHash = ComputeManagedBodyHash(outlineElement);
+                    outline.IsManagedPreviewModified = !string.IsNullOrWhiteSpace(expectedBodyHash)
+                        && !string.Equals(expectedBodyHash, actualBodyHash, StringComparison.Ordinal);
+                }
+                else
+                {
+                    page.UnsupportedObjectCount += outlineElement.Descendants().Count(delegate(XElement element)
+                    {
+                        return element.Name == OneNs + "Image"
+                            || element.Name == OneNs + "InsertedFile"
+                            || element.Name == OneNs + "Media"
+                            || element.Name == OneNs + "InkDrawing";
+                    });
+                }
 
                 XElement childrenElement = outlineElement.Element(OneNs + "OEChildren");
                 if (childrenElement != null)
@@ -114,14 +137,12 @@ namespace OneNoteMarkdown.OneNote
 
         private static string ReadMarkdownSource(XElement oeElement)
         {
-            XElement meta = oeElement.Elements(OneNs + "Meta")
-                .FirstOrDefault(delegate(XElement element)
-                {
-                    return string.Equals((string)element.Attribute("name"), "md-src", StringComparison.Ordinal);
-                });
-            string encoded = meta == null ? null : (string)meta.Attribute("content");
-            if (string.IsNullOrEmpty(encoded)) return string.Empty;
+            return DecodeMeta(ReadMeta(oeElement, "md-src"));
+        }
 
+        private static string DecodeMeta(string encoded)
+        {
+            if (string.IsNullOrEmpty(encoded)) return string.Empty;
             try
             {
                 return Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
@@ -130,6 +151,54 @@ namespace OneNoteMarkdown.OneNote
             {
                 return string.Empty;
             }
+        }
+
+        private static string ReadMeta(XElement container, string name)
+        {
+            if (container == null) return string.Empty;
+            XElement meta = container.DescendantsAndSelf(OneNs + "Meta")
+                .FirstOrDefault(delegate(XElement element)
+                {
+                    return string.Equals((string)element.Attribute("name"), name, StringComparison.Ordinal);
+                });
+            return meta == null ? string.Empty : ((string)meta.Attribute("content") ?? string.Empty);
+        }
+
+        private static string ComputeManagedBodyHash(XElement outline)
+        {
+            StringBuilder value = new StringBuilder();
+            IEnumerable<XElement> content = outline.Descendants(OneNs + "OE").Where(delegate(XElement oe)
+            {
+                return oe.Elements(OneNs + "Meta").Any(delegate(XElement meta)
+                {
+                    return string.Equals((string)meta.Attribute("name"), "md-preview-group", StringComparison.Ordinal);
+                });
+            });
+            foreach (XElement oe in content)
+            {
+                value.Append("OE|");
+                foreach (XElement text in oe.DescendantsAndSelf(OneNs + "T"))
+                {
+                    value.Append("T:").Append(NormalizeManagedText(text.Value)).Append('|');
+                }
+                foreach (XElement data in oe.Descendants(OneNs + "Data"))
+                {
+                    value.Append("D:").Append(Regex.Replace(data.Value ?? string.Empty, "\\s+", string.Empty)).Append('|');
+                }
+            }
+            using (SHA256 sha = SHA256.Create())
+            {
+                return Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(value.ToString())));
+            }
+        }
+
+        private static string NormalizeManagedText(string html)
+        {
+            string value = TagRegex.Replace(html ?? string.Empty, string.Empty);
+            return WebUtility.HtmlDecode(value)
+                .Replace('\u00a0', ' ')
+                .Replace("\r\n", "\n")
+                .Replace('\r', '\n');
         }
 
         private static bool HasMeta(XElement oeElement, string name)

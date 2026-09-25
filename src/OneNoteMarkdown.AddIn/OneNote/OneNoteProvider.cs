@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Text.RegularExpressions;
+using System.Text;
 using System.Xml.Linq;
 using Microsoft.Office.Interop.OneNote;
 using OneNoteMarkdown.OneNote.Interop;
@@ -36,7 +37,7 @@ namespace OneNoteMarkdown.OneNote
 
         public string GetCurrentPageId()
         {
-            Windows windows = _app.GetWindows();
+            Microsoft.Office.Interop.OneNote.Windows windows = _app.GetWindows();
             if (windows == null) return string.Empty;
             Window currentWindow = windows.CurrentWindow;
             if (currentWindow == null) return string.Empty;
@@ -59,49 +60,79 @@ namespace OneNoteMarkdown.OneNote
 
         public string GetCurrentSelectionText()
         {
+            PreviewSource source = GetCurrentSelectionPreviewSource();
+            return source == null ? string.Empty : source.Markdown;
+        }
+
+        internal PreviewSource GetCurrentSelectionPreviewSource()
+        {
             string pageId = GetCurrentPageId();
-            if (string.IsNullOrWhiteSpace(pageId)) return string.Empty;
+            if (string.IsNullOrWhiteSpace(pageId)) return null;
 
             string xml;
             _app.GetPageContent(pageId, out xml, PageInfo.piSelection, XMLSchema.xs2013);
-            if (string.IsNullOrWhiteSpace(xml)) return string.Empty;
+            if (string.IsNullOrWhiteSpace(xml)) return null;
 
             XDocument doc;
             try { doc = XDocument.Parse(xml); }
-            catch { return string.Empty; }
+            catch { return null; }
 
             List<string> texts = new List<string>();
-            bool hasSelectedNode = doc.Descendants().Any(delegate(XElement e)
+            List<string> objectIds = new List<string>();
+            List<XElement> selectedTextNodes = doc.Descendants(OneNs + "T")
+                .Where(IsInsideSelectedSubtree)
+                .ToList();
+            if (selectedTextNodes.Count == 0)
             {
-                string sel = (string)e.Attribute("selected");
-                return string.Equals(sel, "all", StringComparison.OrdinalIgnoreCase);
-            });
-
-            foreach (XElement t in doc.Descendants(OneNs + "T"))
-            {
-                if (hasSelectedNode && !IsInsideSelectedSubtree(t))
-                {
-                    continue;
-                }
-                string plain = HtmlToPlainText(t.Value, true);
-                if (!string.IsNullOrWhiteSpace(plain)) texts.Add(plain);
+                return null;
             }
 
-            return string.Join("\n", texts).Trim();
+            foreach (XElement t in selectedTextNodes)
+            {
+                string plain = HtmlToPlainText(t.Value, true);
+                if (!string.IsNullOrWhiteSpace(plain)) texts.Add(plain);
+                XElement owner = t.Ancestors(OneNs + "OE").FirstOrDefault();
+                string objectId = owner == null ? null : (string)owner.Attribute("objectID");
+                if (!string.IsNullOrWhiteSpace(objectId) && !objectIds.Contains(objectId))
+                {
+                    objectIds.Add(objectId);
+                }
+            }
+
+            string markdown = string.Join("\n", texts).Trim();
+            if (markdown.Length == 0) return null;
+            objectIds.Sort(StringComparer.Ordinal);
+            PreviewSource result = new PreviewSource
+            {
+                PageId = pageId,
+                SourceKey = "selection:" + string.Join("|", objectIds),
+                Markdown = markdown
+            };
+            ApplyBounds(result, selectedTextNodes.Select(delegate(XElement node)
+            {
+                return node.Ancestors(OneNs + "Outline").FirstOrDefault();
+            }));
+            return result;
         }
 
         public string GetCurrentPageTextForRender()
         {
+            PreviewSource source = GetCurrentPagePreviewSource();
+            return source == null ? string.Empty : source.Markdown;
+        }
+
+        internal PreviewSource GetCurrentPagePreviewSource()
+        {
             string pageId = GetCurrentPageId();
-            if (string.IsNullOrWhiteSpace(pageId)) return string.Empty;
+            if (string.IsNullOrWhiteSpace(pageId)) return null;
 
             string xml;
             _app.GetPageContent(pageId, out xml, PageInfo.piAll, XMLSchema.xs2013);
-            if (string.IsNullOrWhiteSpace(xml)) return string.Empty;
+            if (string.IsNullOrWhiteSpace(xml)) return null;
 
             XDocument doc;
             try { doc = XDocument.Parse(xml); }
-            catch { return string.Empty; }
+            catch { return null; }
 
             List<string> texts = new List<string>();
             List<XElement> outlines = doc.Root == null
@@ -111,14 +142,78 @@ namespace OneNoteMarkdown.OneNote
             {
                 XElement outline = outlines[oi];
                 if (IsManagedOutline(outline)) continue;
-                foreach (XElement t in outline.Descendants(OneNs + "T"))
-                {
-                    string plain = HtmlToPlainText(t.Value, true);
-                    if (!string.IsNullOrWhiteSpace(plain)) texts.Add(plain);
-                }
+                string text = ExtractOutlineText(outline);
+                if (!string.IsNullOrWhiteSpace(text)) texts.Add(text);
             }
 
-            return string.Join("\n\n", texts).Trim();
+            string markdown = string.Join("\n\n", texts).Trim();
+            if (markdown.Length == 0) return null;
+            PreviewSource result = new PreviewSource
+            {
+                PageId = pageId,
+                SourceKey = "page:" + pageId,
+                Markdown = markdown
+            };
+            ApplyBounds(result, outlines.Where(delegate(XElement outline) { return !IsManagedOutline(outline); }));
+            return result;
+        }
+
+        internal PreviewSource GetCurrentOutlinePreviewSource()
+        {
+            string pageId = GetCurrentPageId();
+            if (string.IsNullOrWhiteSpace(pageId)) return null;
+
+            string selectionXml;
+            _app.GetPageContent(pageId, out selectionXml, PageInfo.piSelection, XMLSchema.xs2013);
+            if (string.IsNullOrWhiteSpace(selectionXml)) return null;
+
+            XDocument selection;
+            try { selection = XDocument.Parse(selectionXml); }
+            catch { return null; }
+            XElement active = FindDeepestSelectedOe(selection);
+            if (active == null) return null;
+            XElement selectedOutline = active.Ancestors(OneNs + "Outline").FirstOrDefault();
+            string outlineId = selectedOutline == null ? null :
+                ((string)selectedOutline.Attribute("objectID") ?? (string)selectedOutline.Attribute("ID"));
+
+            string fullXml;
+            _app.GetPageContent(pageId, out fullXml, PageInfo.piAll, XMLSchema.xs2013);
+            XDocument full;
+            try { full = XDocument.Parse(fullXml); }
+            catch { return null; }
+
+            XElement outline = null;
+            if (!string.IsNullOrWhiteSpace(outlineId))
+            {
+                outline = full.Descendants(OneNs + "Outline").FirstOrDefault(delegate(XElement candidate)
+                {
+                    return string.Equals((string)candidate.Attribute("objectID"), outlineId, StringComparison.Ordinal)
+                        || string.Equals((string)candidate.Attribute("ID"), outlineId, StringComparison.Ordinal);
+                });
+            }
+            if (outline == null)
+            {
+                string objectId = (string)active.Attribute("objectID");
+                XElement fullOe = full.Descendants(OneNs + "OE").FirstOrDefault(delegate(XElement candidate)
+                {
+                    return string.Equals((string)candidate.Attribute("objectID"), objectId, StringComparison.Ordinal);
+                });
+                outline = fullOe == null ? null : fullOe.Ancestors(OneNs + "Outline").FirstOrDefault();
+            }
+            if (outline == null || IsManagedOutline(outline)) return null;
+
+            string markdown = ExtractOutlineText(outline);
+            if (string.IsNullOrWhiteSpace(markdown)) return null;
+            string key = (string)outline.Attribute("objectID") ?? (string)outline.Attribute("ID")
+                ?? (string)active.Attribute("objectID");
+            PreviewSource result = new PreviewSource
+            {
+                PageId = pageId,
+                SourceKey = "outline:" + (key ?? pageId),
+                Markdown = markdown
+            };
+            ApplyBounds(result, new[] { outline });
+            return result;
         }
 
         public string GetManagedOutlineText(string pageId, string role)
@@ -160,10 +255,16 @@ namespace OneNoteMarkdown.OneNote
 
         private static bool IsInsideSelectedSubtree(XElement node)
         {
+            bool isTextNode = node != null && node.Name == OneNs + "T";
             for (XElement cur = node; cur != null; cur = cur.Parent)
             {
                 string sel = (string)cur.Attribute("selected");
                 if (string.Equals(sel, "all", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+                if (isTextNode && ReferenceEquals(cur, node) &&
+                    string.Equals(sel, "partial", StringComparison.OrdinalIgnoreCase))
                 {
                     return true;
                 }
@@ -174,13 +275,12 @@ namespace OneNoteMarkdown.OneNote
         private static bool IsManagedOutline(XElement outline)
         {
             if (outline == null) return false;
-            XElement firstT = outline.Descendants(OneNs + "T").FirstOrDefault();
-            if (firstT == null) return false;
-            string plain = HtmlToPlainText(firstT.Value, false);
-            if (string.IsNullOrWhiteSpace(plain)) return false;
-            string text = plain.Trim();
-            return string.Equals(text, "Markdown 源码（实时）", StringComparison.Ordinal)
-                || string.Equals(text, "Markdown 预览（实时）", StringComparison.Ordinal);
+            return outline.Descendants(OneNs + "Meta").Any(delegate(XElement meta)
+            {
+                string name = (string)meta.Attribute("name");
+                return string.Equals(name, "md-preview-id", StringComparison.Ordinal)
+                    || string.Equals(name, "md-preview-role", StringComparison.Ordinal);
+            });
         }
 
         private static string ResolveManagedHeading(string role)
@@ -188,6 +288,70 @@ namespace OneNoteMarkdown.OneNote
             if (string.Equals(role, "LiveSource", StringComparison.OrdinalIgnoreCase)) return "Markdown 源码（实时）";
             if (string.Equals(role, "LivePreview", StringComparison.OrdinalIgnoreCase)) return "Markdown 预览（实时）";
             return string.Empty;
+        }
+
+        private static string ExtractOutlineText(XElement outline)
+        {
+            if (outline == null) return string.Empty;
+            List<string> lines = new List<string>();
+            foreach (XElement text in outline.Descendants(OneNs + "T"))
+            {
+                string plain = HtmlToPlainText(text.Value, true);
+                if (!string.IsNullOrWhiteSpace(plain)) lines.Add(plain);
+            }
+            return string.Join("\n", lines).Trim();
+        }
+
+        private static void ApplyBounds(PreviewSource source, IEnumerable<XElement> outlines)
+        {
+            if (source == null || outlines == null) return;
+            bool found = false;
+            double left = 0.0;
+            double top = 0.0;
+            double right = 0.0;
+            double bottom = 0.0;
+            foreach (XElement outline in outlines.Where(delegate(XElement item) { return item != null; }).Distinct())
+            {
+                XElement position = outline.Element(OneNs + "Position");
+                if (position == null) continue;
+                double x;
+                double y;
+                if (!double.TryParse((string)position.Attribute("x"), System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out x)) continue;
+                if (!double.TryParse((string)position.Attribute("y"), System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out y)) continue;
+                XElement size = outline.Element(OneNs + "Size");
+                double width = 500.0;
+                double height = 80.0;
+                if (size != null)
+                {
+                    double parsed;
+                    if (double.TryParse((string)size.Attribute("width"), System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out parsed) && parsed > 0.0) width = parsed;
+                    if (double.TryParse((string)size.Attribute("height"), System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out parsed) && parsed > 0.0) height = parsed;
+                }
+                if (!found)
+                {
+                    left = x;
+                    top = y;
+                    right = x + width;
+                    bottom = y + height;
+                    found = true;
+                }
+                else
+                {
+                    left = Math.Min(left, x);
+                    top = Math.Min(top, y);
+                    right = Math.Max(right, x + width);
+                    bottom = Math.Max(bottom, y + height);
+                }
+            }
+            source.HasBounds = found;
+            source.Left = left;
+            source.Top = top;
+            source.Right = right;
+            source.Bottom = bottom;
         }
 
         /// <summary>
@@ -215,6 +379,7 @@ namespace OneNoteMarkdown.OneNote
 
             if (activeOe == null) return null;
 
+            activeOe = ResolveRenderedGroupAnchor(pageId, activeOe) ?? activeOe;
             string objectId = (string)activeOe.Attribute("objectID");
             string mdSrc = ExtractOeMarkdown(activeOe);
 
@@ -389,6 +554,37 @@ namespace OneNoteMarkdown.OneNote
             return prev;
         }
 
+        private XElement ResolveRenderedGroupAnchor(string pageId, XElement selectedOe)
+        {
+            if (selectedOe == null) return null;
+            XElement groupMeta = selectedOe.Elements(OneNs + "Meta").FirstOrDefault(delegate(XElement meta)
+            {
+                return string.Equals((string)meta.Attribute("name"), "md-render-group", StringComparison.Ordinal);
+            });
+            string groupId = groupMeta == null ? null : (string)groupMeta.Attribute("content");
+            if (string.IsNullOrWhiteSpace(groupId)) return null;
+
+            string xml;
+            _app.GetPageContent(pageId, out xml, PageInfo.piAll, XMLSchema.xs2013);
+            XDocument full;
+            try { full = XDocument.Parse(xml); }
+            catch { return null; }
+
+            return full.Descendants(OneNs + "OE").FirstOrDefault(delegate(XElement oe)
+            {
+                bool inGroup = oe.Elements(OneNs + "Meta").Any(delegate(XElement meta)
+                {
+                    return string.Equals((string)meta.Attribute("name"), "md-render-group", StringComparison.Ordinal)
+                        && string.Equals((string)meta.Attribute("content"), groupId, StringComparison.Ordinal);
+                });
+                if (!inGroup) return false;
+                return oe.Elements(OneNs + "Meta").Any(delegate(XElement meta)
+                {
+                    return string.Equals((string)meta.Attribute("name"), "md-src", StringComparison.Ordinal);
+                });
+            });
+        }
+
         /// <summary>
         /// Returns true if the OE identified by objectId has a &lt;one:Meta name="md-src"&gt; element,
         /// indicating it is in rendered (not raw source) state.
@@ -413,6 +609,58 @@ namespace OneNoteMarkdown.OneNote
                 {
                     return string.Equals((string)m.Attribute("name"), "md-src", StringComparison.Ordinal);
                 });
+        }
+
+        internal bool NavigateToCurrentPreviewSource()
+        {
+            string pageId = GetCurrentPageId();
+            if (string.IsNullOrWhiteSpace(pageId)) return false;
+
+            string selectionXml;
+            _app.GetPageContent(pageId, out selectionXml, PageInfo.piSelection, XMLSchema.xs2013);
+            XDocument selection;
+            try { selection = XDocument.Parse(selectionXml); }
+            catch { return false; }
+            XElement selectedOe = FindDeepestSelectedOe(selection);
+            if (selectedOe == null) return false;
+
+            string objectId = (string)selectedOe.Attribute("objectID");
+            string fullXml;
+            _app.GetPageContent(pageId, out fullXml, PageInfo.piAll, XMLSchema.xs2013);
+            XDocument full;
+            try { full = XDocument.Parse(fullXml); }
+            catch { return false; }
+            XElement fullOe = full.Descendants(OneNs + "OE").FirstOrDefault(delegate(XElement oe)
+            {
+                return string.Equals((string)oe.Attribute("objectID"), objectId, StringComparison.Ordinal);
+            });
+            XElement outline = fullOe == null ? null : fullOe.Ancestors(OneNs + "Outline").FirstOrDefault();
+            if (outline == null) return false;
+
+            XElement sourceMeta = outline.Descendants(OneNs + "Meta").FirstOrDefault(delegate(XElement meta)
+            {
+                return string.Equals((string)meta.Attribute("name"), "md-preview-source-key", StringComparison.Ordinal);
+            });
+            string encoded = sourceMeta == null ? null : (string)sourceMeta.Attribute("content");
+            if (string.IsNullOrWhiteSpace(encoded)) return false;
+
+            string sourceKey;
+            try { sourceKey = Encoding.UTF8.GetString(Convert.FromBase64String(encoded)); }
+            catch { return false; }
+
+            string sourceObjectId = string.Empty;
+            if (sourceKey.StartsWith("outline:", StringComparison.Ordinal))
+            {
+                sourceObjectId = sourceKey.Substring("outline:".Length);
+            }
+            else if (sourceKey.StartsWith("selection:", StringComparison.Ordinal))
+            {
+                string[] ids = sourceKey.Substring("selection:".Length).Split('|');
+                if (ids.Length > 0) sourceObjectId = ids[0];
+            }
+
+            _app.NavigateTo(pageId, sourceObjectId, false);
+            return true;
         }
 
         private static string HtmlToPlainText(string html, bool preserveBreaks)

@@ -9,14 +9,7 @@ namespace OneNoteMarkdown.Features
         {
             try
             {
-                if (LivePreviewService.IsEnabled)
-                {
-                    LivePreviewService.ForceRefresh();
-                }
-                else
-                {
-                    RenderPageMarkdownCommand.Execute();
-                }
+                PreviewManager.RefreshCurrentPage(true);
             }
             catch (Exception ex)
             {

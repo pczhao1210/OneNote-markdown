@@ -30,6 +30,16 @@ namespace OneNoteMarkdown.Markdown
                     continue;
                 }
 
+                if (outline.IsManagedPreview)
+                {
+                    if (string.Equals(outline.ManagedRole, "ImportPreview", System.StringComparison.Ordinal) &&
+                        !string.IsNullOrEmpty(outline.ManagedSource))
+                    {
+                        AppendSeparated(builder, outline.ManagedSource, ref firstLine);
+                    }
+                    continue;
+                }
+
                 foreach (TextBlock block in outline.TextBlocks)
                 {
                     if (block == null || block.IsMarkdownContinuation)
@@ -38,25 +48,21 @@ namespace OneNoteMarkdown.Markdown
                     }
 
                     string text = !string.IsNullOrEmpty(block.MarkdownSource)
-                        ? block.MarkdownSource.Trim()
+                        ? block.MarkdownSource
                         : (block.Text ?? string.Empty).Trim();
                     if (text.Length == 0)
                     {
                         continue;
                     }
 
-                    if (!firstLine)
-                    {
-                        builder.AppendLine();
-                    }
-
-                    firstLine = false;
-
                     if (!string.IsNullOrEmpty(block.MarkdownSource))
                     {
-                        builder.Append(text);
+                        AppendSeparated(builder, text, ref firstLine);
                         continue;
                     }
+
+                    if (!firstLine) builder.AppendLine();
+                    firstLine = false;
 
                     int indent = block.IndentLevel < 0 ? 0 : block.IndentLevel;
                     for (int i = 0; i < indent; i++)
@@ -81,7 +87,17 @@ namespace OneNoteMarkdown.Markdown
                 }
             }
 
-            return builder.ToString().Trim();
+            return builder.ToString().TrimEnd('\r', '\n');
+        }
+
+        private static void AppendSeparated(StringBuilder builder, string markdown, ref bool firstLine)
+        {
+            if (!firstLine && builder.Length > 0)
+            {
+                builder.AppendLine();
+            }
+            builder.Append((markdown ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n'));
+            firstLine = false;
         }
 
         private static bool LooksLikeTask(string text)

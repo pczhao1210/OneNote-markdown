@@ -1,6 +1,12 @@
 #ifndef InstallerArch
   #define InstallerArch "x64"
 #endif
+#ifndef ReleaseName
+  #define ReleaseName "1.2.1-fix"
+#endif
+#ifndef BuildConfiguration
+  #define BuildConfiguration "Release"
+#endif
 
 #if InstallerArch == "x86"
   #define InstallerSuffix "x86"
@@ -8,45 +14,67 @@
   #define InstallerArchitectures "x86compatible"
   #define ComRoot "HKCR32"
   #define TypeLibPlatform "win32"
-#else
+  #define RequiredDotNetRelease 528040
+  #define RequiredDotNetName ".NET Framework 4.8"
+#elif InstallerArch == "x64"
   #define InstallerSuffix "x64"
   #define InstallerDefaultDir "{autopf64}\OneNoteMarkdown"
   #define InstallerArchitectures "x64compatible"
   #define ComRoot "HKCR64"
   #define TypeLibPlatform "win64"
+  #define RequiredDotNetRelease 528040
+  #define RequiredDotNetName ".NET Framework 4.8"
+#elif InstallerArch == "arm64"
+  #define InstallerSuffix "arm64"
+  #define InstallerDefaultDir "{autopf64}\OneNoteMarkdown"
+  #define InstallerArchitectures "arm64"
+  #define ComRoot "HKCR64"
+  #define TypeLibPlatform "win64"
+  #define RequiredDotNetRelease 533320
+  #define RequiredDotNetName ".NET Framework 4.8.1"
+#else
+  #error Unsupported InstallerArch
 #endif
+
+#define AddInOutput "..\OneNoteMarkdown.AddIn\bin\" + BuildConfiguration + "\" + InstallerSuffix
 
 [Setup]
 AppId={{7D0C9CB6-5D83-4E17-89D5-1C8A285F52B4}
 AppName=OneNote Markdown
-AppVersion=1.2.1
+AppVersion={#ReleaseName}
+AppVerName=OneNote Markdown {#ReleaseName}
 AppPublisher=OneNote Markdown
 DefaultDirName={#InstallerDefaultDir}
 DefaultGroupName=OneNote Markdown
 DisableProgramGroupPage=yes
 OutputDir=Output
-OutputBaseFilename=OneNoteMarkdownSetup-{#InstallerSuffix}
+OutputBaseFilename=OneNoteMarkdownSetup-{#ReleaseName}-{#InstallerSuffix}
 ArchitecturesAllowed={#InstallerArchitectures}
-#if InstallerArch == "x64"
-ArchitecturesInstallIn64BitMode=x64compatible
+#if InstallerArch != "x86"
+ArchitecturesInstallIn64BitMode={#InstallerArchitectures}
+#endif
+#if InstallerArch == "arm64"
+MinVersion=10.0.22000
 #endif
 PrivilegesRequired=admin
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+VersionInfoVersion=1.2.1.0
+VersionInfoProductVersion=1.2.1.0
 
 [Languages]
 Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
 
 [Files]
-Source: "..\OneNoteMarkdown.AddIn\bin\Release\OneNoteMarkdown.AddIn.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\OneNoteMarkdown.AddIn\bin\Release\WpfMath.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\OneNoteMarkdown.AddIn\bin\Release\XamlMath.Shared.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\OneNoteMarkdown.AddIn\bin\Release\Extensibility.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\OneNoteMarkdown.AddIn\bin\Release\office.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\OneNoteMarkdown.AddIn\bin\Release\Microsoft.Office.Interop.OneNote.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\OneNoteMarkdown.AddIn\bin\Release\stdole.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "..\OneNoteMarkdown.AddIn\bin\Release\*.pdb"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#AddInOutput}\OneNoteMarkdown.AddIn.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#AddInOutput}\WpfMath.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#AddInOutput}\XamlMath.Shared.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#AddInOutput}\Extensibility.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#AddInOutput}\office.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#AddInOutput}\Microsoft.Office.Interop.OneNote.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#AddInOutput}\stdole.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#AddInOutput}\*.pdb"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "..\..\HELP.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Registry]
@@ -92,26 +120,26 @@ Type: filesandordirs; Name: "{app}"
 
 [Code]
 const
-  DotNet48Release = 528040;
+  RequiredDotNetRelease = {#RequiredDotNetRelease};
 
-function IsDotNet48Installed: Boolean;
+function IsRequiredDotNetInstalled: Boolean;
 var
   Release: Cardinal;
 begin
   Result := RegQueryDWordValue(HKLM32, 'SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full', 'Release', Release) and
-    (Release >= DotNet48Release);
+    (Release >= RequiredDotNetRelease);
 
   if (not Result) and IsWin64 then
     Result := RegQueryDWordValue(HKLM64, 'SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full', 'Release', Release) and
-      (Release >= DotNet48Release);
+      (Release >= RequiredDotNetRelease);
 end;
 
 function InitializeSetup: Boolean;
 begin
-  Result := IsDotNet48Installed;
+  Result := IsRequiredDotNetInstalled;
   if not Result then
   begin
-    MsgBox('需要先安装 .NET Framework 4.8 才能继续安装 OneNote Markdown。', mbCriticalError, MB_OK);
+    MsgBox('需要先安装 {#RequiredDotNetName} 才能继续安装 OneNote Markdown。', mbCriticalError, MB_OK);
   end;
 end;
 

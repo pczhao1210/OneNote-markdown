@@ -32,7 +32,7 @@ namespace OneNoteMarkdown.OneNote.Interop
         [return: MarshalAs(UnmanagedType.Interface)] IQuickFilingDialog QuickFiling();
         void SyncHierarchy([MarshalAs(UnmanagedType.BStr)] string bstrHierarchyID);
         void SetFilingLocation(FilingLocation flToSet, FilingLocationType fltToSet, [MarshalAs(UnmanagedType.BStr)] string bstrFilingSectionID);
-        [return: MarshalAs(UnmanagedType.Interface)] Windows GetWindows();
+        [return: MarshalAs(UnmanagedType.Interface)] Microsoft.Office.Interop.OneNote.Windows GetWindows();
         [return: MarshalAs(UnmanagedType.VariantBool)] bool GetDummy1();
         void MergeSections([MarshalAs(UnmanagedType.BStr)] string bstrSectionSourceId, [MarshalAs(UnmanagedType.BStr)] string bstrSectionDestinationId);
         [return: MarshalAs(UnmanagedType.IDispatch)] object GetCOMAddIns();

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text.RegularExpressions;
 
 namespace OneNoteMarkdown.Markdown
@@ -12,12 +13,21 @@ namespace OneNoteMarkdown.Markdown
         private static readonly Regex UnorderedRegex = new Regex("^([-+*])\\s+(.+)$", RegexOptions.Compiled);
         private static readonly Regex OrderedRegex = new Regex("^(\\d+)[.)]\\s+(.+)$", RegexOptions.Compiled);
         private static readonly Regex TaskRegex = new Regex("^\\[( |x|X)\\]\\s+(.+)$", RegexOptions.Compiled);
+        private static readonly Regex FenceStartRegex = new Regex("^(`{3,}|~{3,})([^`]*)$", RegexOptions.Compiled);
+        private static readonly Regex OneLineLatexRegex = new Regex("^\\$\\$(.+)\\$\\$$", RegexOptions.Compiled);
+        private static readonly Regex TableSeparatorRegex = new Regex("^\\s*\\|?\\s*:?-{3,}:?\\s*(\\|\\s*:?-{3,}:?\\s*)+\\|?\\s*$", RegexOptions.Compiled);
+        private static readonly Regex StandaloneImageRegex = new Regex("^!\\[([^\\]]*)\\]\\(([^)]+)\\)\\s*$", RegexOptions.Compiled);
         private static readonly HashSet<string> DiagramLanguages = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "mermaid", "mindmap", "flow", "sequence"
         };
 
         public static List<MarkdownBlock> RenderToBlocks(string markdown)
+        {
+            return RenderToBlocks(markdown, null);
+        }
+
+        public static List<MarkdownBlock> RenderToBlocks(string markdown, string baseDirectory)
         {
             List<MarkdownBlock> blocks = new List<MarkdownBlock>();
             if (string.IsNullOrEmpty(markdown))
@@ -31,10 +41,13 @@ namespace OneNoteMarkdown.Markdown
                 .Split('\n');
 
             bool inCode = false;
-            string codeFence = null;
+            char codeFenceChar = '\0';
+            int codeFenceLength = 0;
+            string codeOpeningLine = string.Empty;
             string codeLanguage = string.Empty;
             List<string> codeLines = new List<string>();
             bool inLatex = false;
+            string latexOpeningLine = string.Empty;
             List<string> latexLines = new List<string>();
 
             for (int i = 0; i < lines.Length; i++)
@@ -59,12 +72,13 @@ namespace OneNoteMarkdown.Markdown
 
                 if (inCode)
                 {
-                    if (trimmed.StartsWith(codeFence))
+                    if (IsClosingFence(trimmed, codeFenceChar, codeFenceLength))
                     {
                         FlushCodeBlock(blocks, codeLines, codeLanguage);
                         codeLines.Clear();
                         inCode = false;
-                        codeFence = null;
+                        codeFenceChar = '\0';
+                        codeFenceLength = 0;
                         codeLanguage = string.Empty;
                     }
                     else
@@ -74,17 +88,29 @@ namespace OneNoteMarkdown.Markdown
                     continue;
                 }
 
-                if (trimmed.StartsWith("```") || trimmed.StartsWith("~~~"))
+                Match fenceMatch = FenceStartRegex.Match(trimmed);
+                if (fenceMatch.Success)
                 {
                     inCode = true;
-                    codeFence = trimmed.StartsWith("~~~") ? "~~~" : "```";
-                    codeLanguage = ParseFenceLanguage(trimmed, codeFence);
+                    string fence = fenceMatch.Groups[1].Value;
+                    codeFenceChar = fence[0];
+                    codeFenceLength = fence.Length;
+                    codeOpeningLine = line;
+                    codeLanguage = ParseFenceLanguage(trimmed, fence);
+                    continue;
+                }
+
+                Match oneLineLatex = OneLineLatexRegex.Match(trimmed);
+                if (oneLineLatex.Success && oneLineLatex.Groups[1].Value.Trim().Length > 0)
+                {
+                    blocks.Add(MarkdownBlock.LatexBlock(oneLineLatex.Groups[1].Value.Trim()));
                     continue;
                 }
 
                 if (trimmed == "$$")
                 {
                     inLatex = true;
+                    latexOpeningLine = line;
                     latexLines.Clear();
                     continue;
                 }
@@ -103,16 +129,39 @@ namespace OneNoteMarkdown.Markdown
                     continue;
                 }
 
+                if (IsHorizontalRule(trimmed))
+                {
+                    blocks.Add(MarkdownBlock.HorizontalRule());
+                    continue;
+                }
+
+                if (i + 1 < lines.Length && IsTableRow(line) && TableSeparatorRegex.IsMatch(lines[i + 1] ?? string.Empty))
+                {
+                    List<List<string>> rows = new List<List<string>>();
+                    rows.Add(ParseTableRow(line));
+                    i += 2;
+                    while (i < lines.Length && IsTableRow(lines[i]) && !string.IsNullOrWhiteSpace(lines[i]))
+                    {
+                        rows.Add(ParseTableRow(lines[i]));
+                        i++;
+                    }
+                    i--;
+                    blocks.Add(MarkdownBlock.Table(rows));
+                    continue;
+                }
+
+                Match imageMatch = StandaloneImageRegex.Match(trimmed);
+                if (imageMatch.Success)
+                {
+                    string imageTarget = ResolveImageTarget(imageMatch.Groups[2].Value.Trim(), baseDirectory);
+                    blocks.Add(MarkdownBlock.Image(imageMatch.Groups[1].Value, imageTarget));
+                    continue;
+                }
+
                 ListParseResult list;
                 if (TryParseListItem(line, out list))
                 {
                     blocks.Add(MarkdownBlock.ListItem(list.Text, list.IndentLevel, list.Kind, list.OrderedNumber, list.IsTaskChecked));
-                    continue;
-                }
-
-                if (IsHorizontalRule(trimmed))
-                {
-                    blocks.Add(MarkdownBlock.HorizontalRule());
                     continue;
                 }
 
@@ -135,16 +184,86 @@ namespace OneNoteMarkdown.Markdown
                 blocks.Add(MarkdownBlock.Paragraph(NormalizeParagraph(trimmed)));
             }
 
-            if (inCode && codeLines.Count > 0)
+            if (inCode)
             {
-                FlushCodeBlock(blocks, codeLines, codeLanguage);
+                string remainder = string.Join("\n", codeLines.ToArray());
+                blocks.Add(MarkdownBlock.Paragraph(codeOpeningLine + (remainder.Length == 0 ? string.Empty : "\n" + remainder)));
             }
-            if (inLatex && latexLines.Count > 0)
+            if (inLatex)
             {
-                FlushLatexBlock(blocks, latexLines);
+                string remainder = string.Join("\n", latexLines.ToArray());
+                blocks.Add(MarkdownBlock.Paragraph(latexOpeningLine + (remainder.Length == 0 ? string.Empty : "\n" + remainder)));
             }
 
             return blocks;
+        }
+
+        private static string ResolveImageTarget(string target, string baseDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(target) || string.IsNullOrWhiteSpace(baseDirectory)) return target ?? string.Empty;
+            Uri uri;
+            if (Uri.TryCreate(target, UriKind.Absolute, out uri)) return target;
+            if (Path.IsPathRooted(target)) return target;
+            try
+            {
+                return Path.GetFullPath(Path.Combine(baseDirectory, target.Replace('/', Path.DirectorySeparatorChar)));
+            }
+            catch
+            {
+                return target;
+            }
+        }
+
+        private static bool IsClosingFence(string trimmed, char fenceChar, int minimumLength)
+        {
+            if (string.IsNullOrEmpty(trimmed) || fenceChar == '\0' || minimumLength < 3) return false;
+            int count = 0;
+            while (count < trimmed.Length && trimmed[count] == fenceChar) count++;
+            if (count < minimumLength) return false;
+            return trimmed.Substring(count).Trim().Length == 0;
+        }
+
+        private static bool IsTableRow(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line)) return false;
+            string trimmed = line.Trim();
+            return trimmed.IndexOf('|') >= 0 && trimmed != "|";
+        }
+
+        private static List<string> ParseTableRow(string line)
+        {
+            string value = (line ?? string.Empty).Trim();
+            if (value.StartsWith("|", StringComparison.Ordinal)) value = value.Substring(1);
+            if (value.EndsWith("|", StringComparison.Ordinal)) value = value.Substring(0, value.Length - 1);
+
+            List<string> cells = new List<string>();
+            List<char> current = new List<char>();
+            bool escaped = false;
+            for (int i = 0; i < value.Length; i++)
+            {
+                char c = value[i];
+                if (escaped)
+                {
+                    current.Add(c);
+                    escaped = false;
+                    continue;
+                }
+                if (c == '\\')
+                {
+                    escaped = true;
+                    continue;
+                }
+                if (c == '|')
+                {
+                    cells.Add(new string(current.ToArray()).Trim());
+                    current.Clear();
+                    continue;
+                }
+                current.Add(c);
+            }
+            if (escaped) current.Add('\\');
+            cells.Add(new string(current.ToArray()).Trim());
+            return cells;
         }
 
         private static bool IsHorizontalRule(string trimmed)

@@ -36,7 +36,7 @@ namespace OneNoteMarkdown.Features
                 if (isRendered)
                 {
                     // Switch to raw source view.
-                    Logger.Info("ToggleSource: rendered → source, src=" + oe.MarkdownSource);
+                    Logger.Info("ToggleSource: rendered to source, length=" + (oe.MarkdownSource ?? string.Empty).Length);
                     PageWriter writer = new PageWriter();
                     writer.ReplaceOeWithRawSource(oe.PageId, oe.ObjectId, oe.MarkdownSource);
                 }
@@ -45,7 +45,7 @@ namespace OneNoteMarkdown.Features
                     // Switch to rendered view.
                     string src = (oe.MarkdownSource ?? string.Empty).Trim();
                     if (string.IsNullOrEmpty(src)) return;
-                    Logger.Info("ToggleSource: source → rendered, src=" + src);
+                    Logger.Info("ToggleSource: source to rendered, length=" + src.Length);
                     List<MarkdownBlock> blocks = MarkdownRenderer.RenderToBlocks(src);
                     if (blocks == null || blocks.Count == 0)
                         blocks = new List<MarkdownBlock> { MarkdownBlock.Blank() };

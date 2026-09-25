@@ -5,6 +5,9 @@ using System.Threading;
 using System.Windows.Forms;
 using OneNoteMarkdown.AddIn;
 using OneNoteMarkdown.Logging;
+using OneNoteMarkdown.OneNote;
+using OneNoteMarkdown.OneNote.Models;
+using OneNoteMarkdown.Settings;
 
 namespace OneNoteMarkdown.Features
 {
@@ -22,6 +25,7 @@ namespace OneNoteMarkdown.Features
         private static LowLevelKeyboardProc _proc;
         private static Form _pumpForm;
         private static System.Threading.Timer _renderTimer;
+        private static int _generation;
 
         private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
 
@@ -56,41 +60,46 @@ namespace OneNoteMarkdown.Features
 
         public static void Uninstall()
         {
+            IntPtr hook;
+            System.Threading.Timer timer;
+            Form pumpForm;
+            Thread pumpThread;
             lock (Gate)
             {
-                if (_hook != IntPtr.Zero)
-                {
-                    try { UnhookWindowsHookEx(_hook); }
-                    catch (Exception ex) { Logger.Error("EnterHook UnhookWindowsHookEx failed", ex); }
-                    _hook = IntPtr.Zero;
-                }
                 _running = false;
-
-                if (_renderTimer != null)
-                {
-                    try { _renderTimer.Dispose(); }
-                    catch { }
-                    _renderTimer = null;
-                }
-
-                if (_pumpForm != null && !_pumpForm.IsDisposed)
-                {
-                    try { _pumpForm.Invoke((Action)(() => _pumpForm.Close())); }
-                    catch { }
-                }
-
-                if (_pumpThread != null && _pumpThread.IsAlive)
-                {
-                    try { _pumpThread.Join(2000); }
-                    catch { }
-                }
-
+                _generation++;
+                hook = _hook;
+                _hook = IntPtr.Zero;
+                timer = _renderTimer;
+                _renderTimer = null;
+                pumpForm = _pumpForm;
+                pumpThread = _pumpThread;
                 _pumpThread = null;
                 _pumpForm = null;
                 _proc = null;
-
-                Logger.Info("EnterHook uninstalled");
             }
+
+            if (timer != null)
+            {
+                try { timer.Dispose(); }
+                catch { }
+            }
+            if (hook != IntPtr.Zero)
+            {
+                try { UnhookWindowsHookEx(hook); }
+                catch (Exception ex) { Logger.Error("EnterHook UnhookWindowsHookEx failed", ex); }
+            }
+            if (pumpForm != null && !pumpForm.IsDisposed)
+            {
+                try { pumpForm.BeginInvoke((Action)(() => pumpForm.Close())); }
+                catch { }
+            }
+            if (pumpThread != null && pumpThread.IsAlive && !ReferenceEquals(Thread.CurrentThread, pumpThread))
+            {
+                try { pumpThread.Join(2000); }
+                catch { }
+            }
+            Logger.Info("EnterHook uninstalled");
         }
 
         private static IntPtr ResolveModuleHandle()
@@ -132,13 +141,26 @@ namespace OneNoteMarkdown.Features
                     _pumpForm.Load += (_, _) =>
                     {
                         IntPtr hMod = ResolveModuleHandle();
-                        _hook = SetWindowsHookEx(WH_KEYBOARD_LL, _proc, hMod, 0);
-                        if (_hook == IntPtr.Zero)
+                        IntPtr installedHook = SetWindowsHookEx(WH_KEYBOARD_LL, _proc, hMod, 0);
+                        if (installedHook == IntPtr.Zero)
                         {
                             int err = Marshal.GetLastWin32Error();
                             Logger.Error("EnterHook SetWindowsHookEx(WH_KEYBOARD_LL) failed, err=" + err +
                                 ", hMod=" + hMod.ToString("X"), null);
                             _running = false;
+                            _pumpForm.Close();
+                            return;
+                        }
+
+                        bool keepHook;
+                        lock (Gate)
+                        {
+                            keepHook = _running;
+                            if (keepHook) _hook = installedHook;
+                        }
+                        if (!keepHook)
+                        {
+                            UnhookWindowsHookEx(installedHook);
                             _pumpForm.Close();
                             return;
                         }
@@ -174,7 +196,6 @@ namespace OneNoteMarkdown.Features
                     KBDLLHOOKSTRUCT ks = (KBDLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(KBDLLHOOKSTRUCT));
                     if (ks.vkCode == VK_RETURN && LivePreviewService.IsEnabled && IsOneNoteForeground())
                     {
-                        Logger.Info("EnterHook: Enter accepted; scheduling render");
                         ScheduleRenderAfterOneNoteCommit();
                     }
                 }
@@ -185,20 +206,68 @@ namespace OneNoteMarkdown.Features
 
         private static void ScheduleRenderAfterOneNoteCommit()
         {
-            lock (Gate)
+            Connect.PostToOneNoteThread(delegate
             {
-                if (_renderTimer != null)
+                if (!LivePreviewService.IsEnabled) return;
+                OeInfo captured = null;
+                string capturedPageId = string.Empty;
+                try
                 {
-                    try { _renderTimer.Dispose(); }
-                    catch { }
+                    OneNoteProvider provider = new OneNoteProvider();
+                    capturedPageId = provider.GetCurrentPageId();
+                    captured = provider.GetCurrentOeInfo();
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error("EnterHook capture failed", ex);
                 }
 
-                _renderTimer = new System.Threading.Timer(delegate
+                lock (Gate)
                 {
-                    if (!LivePreviewService.IsEnabled) return;
-                    Connect.PostToOneNoteThread(RenderCurrentLineCommand.Execute);
-                }, null, RenderDelayMilliseconds, Timeout.Infinite);
-            }
+                    if (!_running) return;
+                    _generation++;
+                    int generation = _generation;
+                    if (_renderTimer != null)
+                    {
+                        try { _renderTimer.Dispose(); }
+                        catch { }
+                    }
+
+                    _renderTimer = new System.Threading.Timer(delegate
+                    {
+                        lock (Gate)
+                        {
+                            if (!_running || generation != _generation) return;
+                        }
+                        if (!LivePreviewService.IsEnabled) return;
+                        OeInfo boundOe = captured;
+                        string boundPageId = capturedPageId;
+                        Connect.PostToOneNoteThread(delegate
+                        {
+                            try
+                            {
+                                ThemeSettings settings = ThemeSettings.Load();
+                                if (settings.AutoRefreshEnabled)
+                                {
+                                    OneNoteProvider provider = new OneNoteProvider();
+                                    if (string.Equals(provider.GetCurrentPageId(), boundPageId, StringComparison.Ordinal))
+                                    {
+                                        PreviewManager.RefreshCurrentPage(true);
+                                    }
+                                }
+                                else if (boundOe != null)
+                                {
+                                    RenderCurrentLineCommand.Execute(boundOe);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.Error("EnterHook delayed render failed", ex);
+                            }
+                        });
+                    }, null, Math.Max(RenderDelayMilliseconds, ThemeSettings.Load().AutoRefreshDelayMilliseconds), Timeout.Infinite);
+                }
+            });
         }
 
         private static bool IsOneNoteForeground()

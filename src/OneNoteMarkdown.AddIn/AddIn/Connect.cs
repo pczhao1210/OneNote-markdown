@@ -131,17 +131,6 @@ namespace OneNoteMarkdown.AddIn
                 }
                 catch (Exception exLoc) { Logger.Error("Localization init failed", exLoc); }
 
-                // Enable live preview (WH_KEYBOARD_LL on a background pump thread).
-                try
-                {
-                    if (!LivePreviewService.IsEnabled)
-                    {
-                        LivePreviewService.Toggle();
-                        RibbonState.InvalidateRibbon();
-                    }
-                }
-                catch (Exception exLp) { Logger.Error("Auto-enable live preview failed", exLp); }
-
                 // Register global hotkeys asynchronously — the hidden window must
                 // live on the UI pump thread (Application.Run) to receive WM_HOTKEY.
                 System.Threading.ThreadPool.QueueUserWorkItem(_ =>
@@ -275,6 +264,31 @@ namespace OneNoteMarkdown.AddIn
             UiThread.Post(RenderPageMarkdownCommand.Execute);
         }
 
+        public void OnRenderOutline(IRibbonControl control)
+        {
+            UiThread.Post(RenderCurrentOutlineMarkdownCommand.Execute);
+        }
+
+        public void OnJumpPreviewSource(IRibbonControl control)
+        {
+            UiThread.Post(JumpToPreviewSourceCommand.Execute);
+        }
+
+        public void OnResetPreviewLayout(IRibbonControl control)
+        {
+            UiThread.Post(ResetPreviewLayoutCommand.Execute);
+        }
+
+        public void OnDeletePreview(IRibbonControl control)
+        {
+            UiThread.Post(DeletePreviewCommand.Execute);
+        }
+
+        public void OnApplyPreviewDefaults(IRibbonControl control)
+        {
+            UiThread.Post(ApplyPreviewDefaultsCommand.Execute);
+        }
+
         public void OnSettings(IRibbonControl control)
         {
             UiThread.Post(OpenThemeSettingsCommand.Execute);
@@ -308,6 +322,11 @@ namespace OneNoteMarkdown.AddIn
             {"btnExportMarkdownClipboard", "Ribbon.CopyMarkdown"},
             {"btnRenderSelection", "Ribbon.RenderSelection"},
             {"btnRenderPage", "Ribbon.RenderPage"},
+            {"btnRenderOutline", "Ribbon.RenderOutline"},
+            {"btnJumpPreviewSource", "Ribbon.JumpSource"},
+            {"btnResetPreviewLayout", "Ribbon.ResetLayout"},
+            {"btnDeletePreview", "Ribbon.DeletePreview"},
+            {"btnApplyPreviewDefaults", "Ribbon.ApplyDefaults"},
             {"btnToggleLivePreview", "Ribbon.LiveMode"},
             {"btnMarkdownSettings", "Ribbon.Settings"},
             {"btnMarkdownHelp", "Ribbon.Help"},
@@ -320,6 +339,11 @@ namespace OneNoteMarkdown.AddIn
             {"btnExportMarkdownClipboard", "Ribbon.CopyMarkdown.Tip"},
             {"btnRenderSelection", "Ribbon.RenderSelection.Tip"},
             {"btnRenderPage", "Ribbon.RenderPage.Tip"},
+            {"btnRenderOutline", "Ribbon.RenderOutline.Tip"},
+            {"btnJumpPreviewSource", "Ribbon.JumpSource.Tip"},
+            {"btnResetPreviewLayout", "Ribbon.ResetLayout.Tip"},
+            {"btnDeletePreview", "Ribbon.DeletePreview.Tip"},
+            {"btnApplyPreviewDefaults", "Ribbon.ApplyDefaults.Tip"},
             {"btnToggleLivePreview", "Ribbon.LiveMode.Tip"},
             {"btnMarkdownSettings", "Ribbon.Settings.Tip"},
             {"btnMarkdownHelp", "Ribbon.Help.Tip"},
@@ -332,6 +356,11 @@ namespace OneNoteMarkdown.AddIn
             {"btnExportMarkdownClipboard", "Ribbon.CopyMarkdown.SuperTip"},
             {"btnRenderSelection", "Ribbon.RenderSelection.SuperTip"},
             {"btnRenderPage", "Ribbon.RenderPage.SuperTip"},
+            {"btnRenderOutline", "Ribbon.RenderOutline.SuperTip"},
+            {"btnJumpPreviewSource", "Ribbon.JumpSource.SuperTip"},
+            {"btnResetPreviewLayout", "Ribbon.ResetLayout.SuperTip"},
+            {"btnDeletePreview", "Ribbon.DeletePreview.SuperTip"},
+            {"btnApplyPreviewDefaults", "Ribbon.ApplyDefaults.SuperTip"},
             {"btnToggleLivePreview", "Ribbon.LiveMode.SuperTip"},
             {"btnMarkdownSettings", "Ribbon.Settings.SuperTip"},
             {"btnMarkdownHelp", "Ribbon.Help.SuperTip"},
