@@ -117,6 +117,7 @@
     <Compile Include="Rendering\DiagramImageRenderer.cs" />
     <Compile Include="Settings\ThemeSettings.cs" />
     <Compile Include="UI\ForceForeground.cs" />
+    <Compile Include="UI\DpiAwareness.cs" />
     <Compile Include="UI\FileDialogHost.cs" />
     <Compile Include="UI\HelpWindow.cs" />
     <Compile Include="UI\Msg.cs" />

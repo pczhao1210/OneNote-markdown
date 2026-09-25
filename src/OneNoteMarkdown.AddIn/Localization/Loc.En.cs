@@ -122,7 +122,7 @@ namespace OneNoteMarkdown.Localization
             {"Msg.FileTooLarge", "File is too large (exceeds 10 MB), please select a smaller file."},
             {"Msg.FileEmpty", "The selected Markdown file is empty."},
             {"Msg.ParseEmpty", "Markdown parsing produced empty output."},
-            {"Msg.ImportSuccess", "Markdown imported and rendered to the current page."},
+            {"Msg.ImportSuccess", "Markdown source was imported on the left with a preview on the right."},
             {"Msg.ImportFailed", "Import Markdown failed: {0}"},
             {"Msg.PageContentEmpty", "The current page is empty."},
             {"Msg.RenderPageEmpty", "Full page content cannot be rendered."},

@@ -42,6 +42,7 @@ namespace OneNoteMarkdown.UI
             ManualResetEventSlim ready = _ready;
             try
             {
+                DpiAwareness.EnablePerMonitorV2ForCurrentThread();
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 context = new WindowsFormsSynchronizationContext();

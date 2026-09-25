@@ -185,7 +185,10 @@ namespace OneNoteMarkdown.OneNote
             XElement pageElement = pageDoc.Root;
             string encodedSourceKey = EncodeMeta(source.SourceKey);
             XElement existing = FindManagedOutline(pageElement, options.Role, encodedSourceKey);
-            string sourceHash = ComputeHash(NormalizeMarkdown(source.Markdown) + "\n" + GetTheme().RenderFingerprint);
+            string sourceHash = ComputeHash(
+                NormalizeMarkdown(source.Markdown) + "\n" +
+                (source.BaseDirectory ?? string.Empty) + "\n" +
+                GetTheme().RenderFingerprint);
 
             if (existing != null)
             {
@@ -244,6 +247,7 @@ namespace OneNoteMarkdown.OneNote
                 encodedSourceKey,
                 sourceHash,
                 source.Markdown,
+                source.BaseDirectory,
                 showTitle);
 
             if (existing == null)
@@ -296,6 +300,100 @@ namespace OneNoteMarkdown.OneNote
             }
 
             UpsertManagedBlocks(pageId, role, blocks, heading);
+        }
+
+        internal void UpsertImportedMarkdownSource(PreviewSource source)
+        {
+            const int concurrentPageChange = unchecked((int)0x80042010);
+            for (int attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    UpsertImportedMarkdownSourceOnce(source);
+                    return;
+                }
+                catch (COMException ex) when (ex.ErrorCode == concurrentPageChange && attempt < 3)
+                {
+                    Logger.Warn("Imported Markdown source update raced with a OneNote page save; retrying.");
+                    Thread.Sleep(75);
+                }
+            }
+        }
+
+        private void UpsertImportedMarkdownSourceOnce(PreviewSource source)
+        {
+            if (source == null) throw new ArgumentNullException(nameof(source));
+            ValidatePageId(source.PageId);
+            if (string.IsNullOrWhiteSpace(source.SourceKey)) throw new ArgumentException("Source key cannot be empty.", nameof(source));
+
+            XDocument pageDoc = GetPageDocument(source.PageId);
+            XElement pageElement = pageDoc.Root;
+            string encodedSourceKey = EncodeMeta(source.SourceKey);
+            XElement existing = FindImportedSourceOutline(pageElement, encodedSourceKey);
+            HashSet<string> needed = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "p" };
+            Dictionary<string, int> nameToIndex = EnsurePageQuickStyles(pageElement, needed);
+            int normalIndex = LookupStyle(nameToIndex, "p");
+
+            double x = ReadOutlineX(existing, 36d);
+            double y = ReadOutlineY(existing, CalculateNextOutlineY(pageDoc));
+            double width = ReadOutlineDimension(existing, "width", GetTheme().PreviewWidth);
+            double height = ReadOutlineDimension(existing, "height", 100d);
+            XElement outline = CreateImportedSourceOutline(source, encodedSourceKey, x, y, width, height, normalIndex);
+
+            if (existing == null)
+            {
+                pageElement.Add(outline);
+            }
+            else
+            {
+                existing.ReplaceWith(outline);
+            }
+
+            UpdatePage(pageDoc);
+        }
+
+        private static XElement CreateImportedSourceOutline(
+            PreviewSource source,
+            string encodedSourceKey,
+            double x,
+            double y,
+            double width,
+            double height,
+            int normalStyleIndex)
+        {
+            XElement outline = new XElement(OneNs + "Outline",
+                new XElement(OneNs + "Position",
+                    new XAttribute("x", FormatDouble(x)),
+                    new XAttribute("y", FormatDouble(y))),
+                new XElement(OneNs + "Size",
+                    new XAttribute("width", FormatDouble(width > 0d ? width : 520d)),
+                    new XAttribute("height", FormatDouble(height > 0d ? height : 100d)),
+                    new XAttribute("isSetByUser", "true")));
+
+            XElement sourceOe = new XElement(OneNs + "OE");
+            if (normalStyleIndex >= 0)
+            {
+                sourceOe.Add(new XAttribute("quickStyleIndex", normalStyleIndex.ToString(CultureInfo.InvariantCulture)));
+            }
+            AddMeta(sourceOe, "md-import-source-id", Guid.NewGuid().ToString("N"));
+            AddMeta(sourceOe, "md-import-source-key", encodedSourceKey);
+            AddMeta(sourceOe, "md-import-base-directory", EncodeMeta(source.BaseDirectory ?? string.Empty));
+            sourceOe.Add(new XElement(OneNs + "T",
+                new XCData(SanitizeCData(BuildRawMarkdownHtml(source.Markdown)))));
+            outline.Add(new XElement(OneNs + "OEChildren", sourceOe));
+            return outline;
+        }
+
+        private static string BuildRawMarkdownHtml(string markdown)
+        {
+            string normalized = (markdown ?? string.Empty)
+                .Replace("\r\n", "\n")
+                .Replace('\r', '\n')
+                .Replace("\t", "    ");
+            string encoded = WebUtility.HtmlEncode(normalized)
+                .Replace(" ", "&nbsp;")
+                .Replace("\n", "<br>");
+            return encoded.Length == 0 ? "&nbsp;" : encoded;
         }
 
         private void AppendBlocksInternal(string pageId, IList<MarkdownBlock> blocks, string heading)
@@ -486,12 +584,43 @@ namespace OneNoteMarkdown.OneNote
         private static XElement FindManagedOutline(XElement pageElement, string role, string encodedSourceKey)
         {
             if (pageElement == null) return null;
-            return pageElement.Elements(OneNs + "Outline").FirstOrDefault(delegate(XElement outline)
+            List<XElement> outlines = pageElement.Elements(OneNs + "Outline").ToList();
+            XElement exact = outlines.FirstOrDefault(delegate(XElement outline)
             {
                 string candidateRole = ReadMeta(outline, "md-preview-role");
                 string candidateSourceKey = ReadMeta(outline, "md-preview-source-key");
                 return string.Equals(candidateRole, role, StringComparison.Ordinal) &&
                     string.Equals(candidateSourceKey, encodedSourceKey, StringComparison.Ordinal);
+            });
+            if (exact != null) return exact;
+
+            if (!string.Equals(role, "PagePreview", StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            XElement pagePreview = outlines.FirstOrDefault(delegate(XElement outline)
+            {
+                return string.Equals(ReadMeta(outline, "md-preview-role"), "PagePreview", StringComparison.Ordinal);
+            });
+            if (pagePreview != null) return pagePreview;
+
+            List<XElement> legacyImports = outlines.Where(delegate(XElement outline)
+            {
+                return string.Equals(ReadMeta(outline, "md-preview-role"), "ImportPreview", StringComparison.Ordinal);
+            }).ToList();
+            return legacyImports.Count == 1 ? legacyImports[0] : null;
+        }
+
+        private static XElement FindImportedSourceOutline(XElement pageElement, string encodedSourceKey)
+        {
+            if (pageElement == null) return null;
+            return pageElement.Elements(OneNs + "Outline").FirstOrDefault(delegate(XElement outline)
+            {
+                return string.Equals(
+                    ReadMeta(outline, "md-import-source-key"),
+                    encodedSourceKey,
+                    StringComparison.Ordinal);
             });
         }
 
@@ -1153,7 +1282,7 @@ namespace OneNoteMarkdown.OneNote
             return protectedText;
         }
 
-        private string SanitizeCData(string value)
+        private static string SanitizeCData(string value)
         {
             return (value ?? string.Empty).Replace("]]>", "]]&gt;");
         }
@@ -1213,6 +1342,7 @@ namespace OneNoteMarkdown.OneNote
             string encodedSourceKey,
             string sourceHash,
             string markdownSource,
+            string baseDirectory,
             bool hasTitle)
         {
             if (outline == null) return;
@@ -1231,18 +1361,22 @@ namespace OneNoteMarkdown.OneNote
 
             List<XElement> content = oes.Skip(contentStart).ToList();
             string bodyHash = ComputeBodyHash(content);
+            for (int i = 0; i < oes.Count; i++)
+            {
+                AddMeta(oes[i], "md-preview-id", previewId);
+                AddMeta(oes[i], "md-preview-role", role);
+                AddMeta(oes[i], "md-preview-source-key", encodedSourceKey);
+            }
             for (int i = 0; i < content.Count; i++)
             {
                 AddMeta(content[i], "md-preview-group", previewId);
             }
 
-            XElement anchor = content[0];
-            AddMeta(anchor, "md-preview-id", previewId);
-            AddMeta(anchor, "md-preview-role", role);
-            AddMeta(anchor, "md-preview-source-key", encodedSourceKey);
+            XElement anchor = oes[0];
             AddMeta(anchor, "md-preview-source-hash", sourceHash);
             AddMeta(anchor, "md-preview-body-hash", bodyHash);
             AddMeta(anchor, "md-preview-source", EncodeMeta(NormalizeMarkdown(markdownSource)));
+            AddMeta(anchor, "md-preview-base-directory", EncodeMeta(baseDirectory ?? string.Empty));
         }
 
         private static XElement FindPreviewTitleOe(XElement outline)
@@ -1355,10 +1489,7 @@ namespace OneNoteMarkdown.OneNote
                      string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
                 {
                     if (!GetTheme().AllowRemoteImages) return false;
-                    HttpWebRequest request = (HttpWebRequest)WebRequest.Create(uri);
-                    request.Timeout = 5000;
-                    request.ReadWriteTimeout = 5000;
-                    request.MaximumResponseHeadersLength = 32;
+                    HttpWebRequest request = CreateRemoteImageRequest(uri);
                     using (WebResponse response = request.GetResponse())
                     using (Stream input = response.GetResponseStream())
                     using (MemoryStream downloaded = new MemoryStream())
@@ -1403,6 +1534,27 @@ namespace OneNoteMarkdown.OneNote
                 Logger.Warn("Image render failed: " + ex.Message);
                 return false;
             }
+        }
+
+        private static HttpWebRequest CreateRemoteImageRequest(Uri uri)
+        {
+            if (uri == null) throw new ArgumentNullException(nameof(uri));
+            SecurityProtocolType protocols = ServicePointManager.SecurityProtocol;
+            if (protocols != SecurityProtocolType.SystemDefault &&
+                (protocols & SecurityProtocolType.Tls12) == 0)
+            {
+                ServicePointManager.SecurityProtocol = protocols | SecurityProtocolType.Tls12;
+            }
+            HttpWebRequest request = (HttpWebRequest)WebRequest.Create(uri);
+            request.Timeout = 5000;
+            request.ReadWriteTimeout = 5000;
+            request.MaximumResponseHeadersLength = 32;
+            request.AllowAutoRedirect = true;
+            request.MaximumAutomaticRedirections = 5;
+            request.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
+            request.UserAgent = "OneNoteMarkdown/1.2.1";
+            request.Accept = "image/*";
+            return request;
         }
 
         private static string FormatDouble(double value)
