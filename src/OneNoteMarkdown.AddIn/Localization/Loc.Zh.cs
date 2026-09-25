@@ -84,6 +84,7 @@ namespace OneNoteMarkdown.Localization
             {"Settings.PreviewGap", "预览间距"},
             {"Settings.PreviewWidth", "预览宽度"},
             {"Settings.CreateNewOnRefresh", "每次手动渲染时创建新预览（默认关闭）"},
+            {"Settings.PreviewConflictNotification", "预览正文被修改时询问是否覆盖（关闭则直接覆盖）"},
             {"Settings.AutoRefresh", "编辑后延迟自动刷新对照预览"},
             {"Settings.AutoRefreshDelay", "自动刷新延迟（毫秒）"},
             {"Settings.Language", "界面语言"},

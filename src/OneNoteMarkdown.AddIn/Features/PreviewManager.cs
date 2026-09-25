@@ -42,7 +42,7 @@ namespace OneNoteMarkdown.Features
                 Width = settings.PreviewWidth,
                 ForceLayout = forceLayout,
                 ApplyTitleDefaults = applyTitleDefaults,
-                OverwriteUserChanges = false,
+                OverwriteUserChanges = !settings.PreviewConflictNotificationEnabled,
                 CreateNewPreview = allowCreateNew && settings.PreviewCreateNewOnRefresh
             };
 
