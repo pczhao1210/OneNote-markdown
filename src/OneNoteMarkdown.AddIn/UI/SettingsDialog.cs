@@ -28,6 +28,7 @@ namespace OneNoteMarkdown.UI
         private CheckBox _chkAutoRefresh;
         private TextBox _txtAutoRefreshDelay;
         private CheckBox _chkRemoteImages;
+        private CheckBox _chkImportKeepSource;
         private ComboBox _cboLanguage;
 
         public SettingsDialog()
@@ -185,6 +186,16 @@ namespace OneNoteMarkdown.UI
             content.Controls.Add(_chkRemoteImages);
             y += 36;
 
+            _chkImportKeepSource = new CheckBox
+            {
+                Text = Loc.S("Settings.ImportKeepSource"),
+                Location = new Point(24, y),
+                AutoSize = true,
+                Font = inputFont
+            };
+            content.Controls.Add(_chkImportKeepSource);
+            y += 36;
+
             Label secPreview = new Label { Text = Loc.S("Settings.Section.Preview"), Location = new Point(24, y), AutoSize = true, Font = headingFont, ForeColor = purple };
             content.Controls.Add(secPreview);
             y += 32;
@@ -323,6 +334,7 @@ namespace OneNoteMarkdown.UI
             _chkLatex.Checked = s.EnableLatexToImage;
             _chkLineNumber.Checked = s.EnableCodeLineNumber;
             _chkRemoteImages.Checked = s.AllowRemoteImages;
+            _chkImportKeepSource.Checked = s.ImportKeepSource;
             _chkPreviewTitle.Checked = s.PreviewShowTitle;
             _txtPreviewTitle.Text = s.PreviewTitle;
             _cboPreviewPosition.SelectedIndex = s.PreviewPlacement == PreviewPlacement.Below ? 1 : 0;
@@ -371,6 +383,7 @@ namespace OneNoteMarkdown.UI
                     "preview.autoRefresh=" + (_chkAutoRefresh.Checked ? "true" : "false") + "\r\n" +
                     "preview.autoRefresh.delayMs=" + _txtAutoRefreshDelay.Text.Trim() + "\r\n" +
                     "image.allowRemote=" + (_chkRemoteImages.Checked ? "true" : "false") + "\r\n" +
+                    "import.keepSource=" + (_chkImportKeepSource.Checked ? "true" : "false") + "\r\n" +
                     "diagram.timeoutMs=3000\r\n" +
                     "language=" + langValue + "\r\n";
 

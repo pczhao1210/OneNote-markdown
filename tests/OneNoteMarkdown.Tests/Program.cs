@@ -32,6 +32,7 @@ namespace OneNoteMarkdown.Tests
             Run("Inline escaping", TestInlineEscaping);
             Run("Inline LaTeX rendering", TestInlineLatexRendering);
             Run("Remote image request", TestRemoteImageRequest);
+            Run("Import source default", TestImportSourceDefault);
             Run("DPI-aware settings", TestDpiAwareSettings);
             Run("Managed preview reuse", TestManagedPreviewReuse);
             Run("Hidden UI anchor", TestHiddenUiAnchor);
@@ -339,6 +340,16 @@ namespace OneNoteMarkdown.Tests
                     dialog.AutoScaleDimensions.Height >= 96f,
                     "Settings dialog reported invalid DPI scaling dimensions.");
             }
+        }
+
+        private static void TestImportSourceDefault()
+        {
+            Type settingsType = typeof(PageWriter).Assembly.GetType(
+                "OneNoteMarkdown.Settings.ThemeSettings",
+                true);
+            object settings = Activator.CreateInstance(settingsType, true);
+            bool keepSource = (bool)settingsType.GetProperty("ImportKeepSource").GetValue(settings);
+            Assert(!keepSource, "Imported Markdown source must be disabled by default.");
         }
 
         private static void TestManagedPreviewReuse()

@@ -32,6 +32,7 @@ namespace OneNoteMarkdown.Settings
         public bool AutoRefreshEnabled { get; private set; }
         public int AutoRefreshDelayMilliseconds { get; private set; }
         public bool AllowRemoteImages { get; private set; }
+        public bool ImportKeepSource { get; private set; }
         public int DiagramTimeoutMilliseconds { get; private set; }
         public string HeadingColor { get; private set; }
         public string CodeBackgroundColor { get; private set; }
@@ -76,6 +77,7 @@ namespace OneNoteMarkdown.Settings
             AutoRefreshEnabled = false;
             AutoRefreshDelayMilliseconds = 700;
             AllowRemoteImages = false;
+            ImportKeepSource = false;
             DiagramTimeoutMilliseconds = 3000;
             HeadingColor = "#3f3f46";
             CodeBackgroundColor = "#f5f5f5";
@@ -134,6 +136,7 @@ namespace OneNoteMarkdown.Settings
                 s.AutoRefreshDelayMilliseconds = ParseInt(value, s.AutoRefreshDelayMilliseconds, 250, 10000);
             }
             if (kv.TryGetValue("image.allowRemote", out value)) s.AllowRemoteImages = ParseBool(value, s.AllowRemoteImages);
+            if (kv.TryGetValue("import.keepSource", out value)) s.ImportKeepSource = ParseBool(value, s.ImportKeepSource);
             if (kv.TryGetValue("diagram.timeoutMs", out value))
             {
                 s.DiagramTimeoutMilliseconds = ParseInt(value, s.DiagramTimeoutMilliseconds, 250, 30000);
@@ -168,6 +171,7 @@ namespace OneNoteMarkdown.Settings
                         "preview.autoRefresh=false\r\n" +
                         "preview.autoRefresh.delayMs=700\r\n" +
                         "image.allowRemote=false\r\n" +
+                        "import.keepSource=false\r\n" +
                         "diagram.timeoutMs=3000\r\n" +
                         "language=auto\r\n");
                 }
