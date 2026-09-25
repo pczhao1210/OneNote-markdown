@@ -7,6 +7,12 @@ using OneNoteMarkdown.OneNote.Models;
 
 namespace OneNoteMarkdown.Settings
 {
+    internal enum RenderImageFormat
+    {
+        Png = 0,
+        Emf = 1
+    }
+
     internal sealed class ThemeSettings
     {
         private static readonly string SettingsDir = Path.Combine(
@@ -21,6 +27,8 @@ namespace OneNoteMarkdown.Settings
         public double ParagraphFontSize { get; private set; }
         public double CodeFontSize { get; private set; }
         public bool EnableLatexToImage { get; private set; }
+        public RenderImageFormat LatexImageFormat { get; private set; }
+        public RenderImageFormat MermaidImageFormat { get; private set; }
         public bool EnableCodeLineNumber { get; private set; }
         public string Language { get; private set; }
         public string ThemePreset { get; private set; }
@@ -50,6 +58,8 @@ namespace OneNoteMarkdown.Settings
                     ParagraphFontSize.ToString(CultureInfo.InvariantCulture),
                     CodeFontSize.ToString(CultureInfo.InvariantCulture),
                     EnableLatexToImage ? "1" : "0",
+                    LatexImageFormat.ToString(),
+                    MermaidImageFormat.ToString(),
                     EnableCodeLineNumber ? "1" : "0",
                     AllowRemoteImages ? "1" : "0",
                     HeadingColor,
@@ -66,6 +76,8 @@ namespace OneNoteMarkdown.Settings
             ParagraphFontSize = 11.0;
             CodeFontSize = 10.0;
             EnableLatexToImage = true;
+            LatexImageFormat = RenderImageFormat.Png;
+            MermaidImageFormat = RenderImageFormat.Png;
             EnableCodeLineNumber = false;
             Language = "auto";
             ThemePreset = "technical";
@@ -118,6 +130,8 @@ namespace OneNoteMarkdown.Settings
             if (kv.TryGetValue("font.size.paragraph", out value)) s.ParagraphFontSize = ParseDouble(value, s.ParagraphFontSize);
             if (kv.TryGetValue("font.size.code", out value)) s.CodeFontSize = ParseDouble(value, s.CodeFontSize);
             if (kv.TryGetValue("enable.latex.image", out value)) s.EnableLatexToImage = ParseBool(value, s.EnableLatexToImage);
+            if (kv.TryGetValue("latex.imageFormat", out value)) s.LatexImageFormat = ParseImageFormat(value);
+            if (kv.TryGetValue("mermaid.imageFormat", out value)) s.MermaidImageFormat = ParseImageFormat(value);
             if (kv.TryGetValue("enable.code.lineNumber", out value)) s.EnableCodeLineNumber = ParseBool(value, s.EnableCodeLineNumber);
             if (kv.TryGetValue("language", out value) && !string.IsNullOrWhiteSpace(value)) s.Language = value.Trim().ToLowerInvariant();
             if (kv.TryGetValue("preview.title.show", out value)) s.PreviewShowTitle = ParseBool(value, s.PreviewShowTitle);
@@ -161,6 +175,8 @@ namespace OneNoteMarkdown.Settings
                         "font.size.paragraph=11\r\n" +
                         "font.size.code=10\r\n" +
                         "enable.latex.image=true\r\n" +
+                        "latex.imageFormat=png\r\n" +
+                        "mermaid.imageFormat=png\r\n" +
                         "enable.code.lineNumber=false\r\n" +
                         "theme.preset=technical\r\n" +
                         "preview.title.show=true\r\n" +
@@ -204,6 +220,13 @@ namespace OneNoteMarkdown.Settings
             if (string.Equals(v, "yes", StringComparison.OrdinalIgnoreCase)) return true;
             if (string.Equals(v, "no", StringComparison.OrdinalIgnoreCase)) return false;
             return fallback;
+        }
+
+        private static RenderImageFormat ParseImageFormat(string value)
+        {
+            return string.Equals(value, "emf", StringComparison.OrdinalIgnoreCase)
+                ? RenderImageFormat.Emf
+                : RenderImageFormat.Png;
         }
 
         private void ApplyPreset(string value)

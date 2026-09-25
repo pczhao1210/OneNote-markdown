@@ -277,7 +277,7 @@ namespace OneNoteMarkdown.Localization
         private static string GetLatexZh()
         {
             return "<h1>LaTeX 公式</h1>"
-                + "<p>本插件支持将 LaTeX 数学公式渲染为高清 PNG 图片并嵌入 OneNote 页面。</p>"
+                + "<p>本插件支持将 LaTeX 数学公式渲染为图片并嵌入 OneNote 页面。默认使用 PNG；也可在设置中选择可无损缩放的 EMF 矢量格式。</p>"
                 + "<h2>块级公式（Display Math）</h2>"
                 + "<p>使用独占行的 <code>$$</code> 标记包裹公式：</p>"
                 + "<pre><code>$$\nE = mc^2\n$$</code></pre>"
@@ -315,6 +315,7 @@ namespace OneNoteMarkdown.Localization
                 + "<table>"
                 + "<tr><th>配置项</th><th>默认值</th><th>说明</th></tr>"
                 + "<tr><td><code>enable.latex.image</code></td><td>true</td><td>设为 false 则公式以纯文本保留</td></tr>"
+                + "<tr><td><code>latex.imageFormat</code></td><td>png</td><td>设为 emf 时使用矢量路径和文字，不封装 PNG</td></tr>"
                 + "<tr><td><code>font.math</code></td><td>Cambria Math</td><td>公式渲染使用的数学字体</td></tr>"
                 + "</table>";
         }
@@ -350,6 +351,7 @@ namespace OneNoteMarkdown.Localization
                 + "<h2>离线 Mermaid 流程图</h2>"
                 + "<ul>"
                 + "<li><code>```mermaid</code> 中常见 <code>flowchart</code>/<code>graph</code> 语法会在本地生成图片</li>"
+                + "<li>默认输出 PNG；可在设置中为 Mermaid 单独选择可无损缩放的 EMF 矢量格式</li>"
                 + "<li>不支持的 Mermaid 语句、其他图表语言、超时或资源限制会保留完整围栏源码</li>"
                 + "</ul>";
         }
@@ -374,6 +376,8 @@ namespace OneNoteMarkdown.Localization
                 + "<tr><td><code>preview.title.*</code></td><td>显示 / Markdown Render</td><td>新预览默认标题</td></tr>"
                 + "<tr><td><code>preview.autoRefresh*</code></td><td>false / 700</td><td>自动刷新开关与防抖延迟</td></tr>"
                 + "<tr><td><code>image.allowRemote</code></td><td>false</td><td>允许受限 HTTP/HTTPS 图片下载</td></tr>"
+                + "<tr><td><code>latex.imageFormat</code></td><td>png</td><td>LaTeX 图片格式：png 或 emf</td></tr>"
+                + "<tr><td><code>mermaid.imageFormat</code></td><td>png</td><td>Mermaid 图片格式：png 或 emf</td></tr>"
                 + "<tr><td><code>import.keepSource</code></td><td>false</td><td>导入时在左侧保留可编辑 Markdown 原文</td></tr>"
                 + "<tr><td><code>language</code></td><td>auto</td><td>界面语言（auto/zh/en）</td></tr>"
                 + "</table>"
@@ -655,7 +659,7 @@ namespace OneNoteMarkdown.Localization
         private static string GetLatexEn()
         {
             return "<h1>LaTeX Formulas</h1>"
-                + "<p>This plugin renders LaTeX math formulas as high-resolution PNG images embedded in OneNote pages.</p>"
+                + "<p>This plugin renders LaTeX math formulas as images embedded in OneNote pages. PNG is the default; scalable vector EMF can be selected in Settings.</p>"
                 + "<h2>Block Formulas (Display Math)</h2>"
                 + "<p>Wrap formulas with <code>$$</code> markers on their own lines:</p>"
                 + "<pre><code>$$\nE = mc^2\n$$</code></pre>"
@@ -693,6 +697,7 @@ namespace OneNoteMarkdown.Localization
                 + "<table>"
                 + "<tr><th>Setting</th><th>Default</th><th>Description</th></tr>"
                 + "<tr><td><code>enable.latex.image</code></td><td>true</td><td>Set to false to keep formulas as plain text</td></tr>"
+                + "<tr><td><code>latex.imageFormat</code></td><td>png</td><td>Use emf for vector paths and text without an embedded PNG</td></tr>"
                 + "<tr><td><code>font.math</code></td><td>Cambria Math</td><td>Math font for rendering</td></tr>"
                 + "</table>";
         }
@@ -728,6 +733,7 @@ namespace OneNoteMarkdown.Localization
                 + "<h2>Offline Mermaid Flowcharts</h2>"
                 + "<ul>"
                 + "<li>Common <code>flowchart</code>/<code>graph</code> syntax inside <code>```mermaid</code> is rendered locally</li>"
+                + "<li>PNG is the default; scalable vector EMF can be selected independently for Mermaid in Settings</li>"
                 + "<li>Unsupported Mermaid statements, other diagram languages, timeouts, or limits keep the complete fenced source</li>"
                 + "</ul>";
         }
@@ -752,6 +758,8 @@ namespace OneNoteMarkdown.Localization
                 + "<tr><td><code>preview.title.*</code></td><td>shown / Markdown Render</td><td>Default title for new previews</td></tr>"
                 + "<tr><td><code>preview.autoRefresh*</code></td><td>false / 700</td><td>Auto-refresh switch and debounce delay</td></tr>"
                 + "<tr><td><code>image.allowRemote</code></td><td>false</td><td>Allow bounded HTTP/HTTPS image downloads</td></tr>"
+                + "<tr><td><code>latex.imageFormat</code></td><td>png</td><td>LaTeX image format: png or emf</td></tr>"
+                + "<tr><td><code>mermaid.imageFormat</code></td><td>png</td><td>Mermaid image format: png or emf</td></tr>"
                 + "<tr><td><code>import.keepSource</code></td><td>false</td><td>Keep editable Markdown source on the left when importing</td></tr>"
                 + "<tr><td><code>language</code></td><td>auto</td><td>UI language (auto/zh/en)</td></tr>"
                 + "</table>"

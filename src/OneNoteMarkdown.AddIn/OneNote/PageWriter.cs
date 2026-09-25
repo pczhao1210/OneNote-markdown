@@ -965,13 +965,35 @@ namespace OneNoteMarkdown.OneNote
             if (latex.Trim().Length > 0)
             {
                 LatexImageRenderer renderer = new LatexImageRenderer();
-                byte[] pngBytes;
+                bool emf = GetTheme().LatexImageFormat == RenderImageFormat.Emf;
+                byte[] imageBytes;
                 int pixelWidth;
                 int pixelHeight;
                 string error;
-                if (renderer.TryRenderToPng(latex, GetTheme().MathFontFamily, out pngBytes, out pixelWidth, out pixelHeight, out error))
+                bool rendered = emf
+                    ? renderer.TryRenderToEmf(
+                        latex,
+                        GetTheme().MathFontFamily,
+                        out imageBytes,
+                        out pixelWidth,
+                        out pixelHeight,
+                        out error)
+                    : renderer.TryRenderToPng(
+                        latex,
+                        GetTheme().MathFontFamily,
+                        out imageBytes,
+                        out pixelWidth,
+                        out pixelHeight,
+                        out error);
+                if (rendered)
                 {
-                    return CreateImageOe(pngBytes, pixelWidth, pixelHeight, styleIndex, "LaTeX");
+                    return CreateImageOe(
+                        imageBytes,
+                        pixelWidth,
+                        pixelHeight,
+                        styleIndex,
+                        "LaTeX",
+                        emf ? "emf" : "png");
                 }
                 Logger.Warn("CreateLatexOe: WpfMath render failed; source retained.");
                 return CreateStyledOe(
@@ -990,27 +1012,50 @@ namespace OneNoteMarkdown.OneNote
             if (GetTheme().EnableLatexToImage && InlineLatexRegex.IsMatch(text))
             {
                 LatexImageRenderer renderer = new LatexImageRenderer();
-                byte[] pngBytes;
+                bool emf = GetTheme().LatexImageFormat == RenderImageFormat.Emf;
+                byte[] imageBytes;
                 int pixelWidth;
                 int pixelHeight;
                 string error;
-                if (renderer.TryRenderInlineTextToPng(
-                    text,
-                    GetTheme().DefaultFontFamily,
-                    GetTheme().ParagraphFontSize,
-                    out pngBytes,
-                    out pixelWidth,
-                    out pixelHeight,
-                    out error))
+                bool rendered = emf
+                    ? renderer.TryRenderInlineTextToEmf(
+                        text,
+                        GetTheme().DefaultFontFamily,
+                        GetTheme().ParagraphFontSize,
+                        out imageBytes,
+                        out pixelWidth,
+                        out pixelHeight,
+                        out error)
+                    : renderer.TryRenderInlineTextToPng(
+                        text,
+                        GetTheme().DefaultFontFamily,
+                        GetTheme().ParagraphFontSize,
+                        out imageBytes,
+                        out pixelWidth,
+                        out pixelHeight,
+                        out error);
+                if (rendered)
                 {
-                    return CreateImageOe(pngBytes, pixelWidth, pixelHeight, styleIndex, text);
+                    return CreateImageOe(
+                        imageBytes,
+                        pixelWidth,
+                        pixelHeight,
+                        styleIndex,
+                        text,
+                        emf ? "emf" : "png");
                 }
                 Logger.Warn("CreateParagraphOe: inline LaTeX render failed; source retained. " + error);
             }
             return CreateStyledOe(text, styleIndex, false, true);
         }
 
-        private XElement CreateImageOe(byte[] imageBytes, int pixelWidth, int pixelHeight, int styleIndex, string alt)
+        private XElement CreateImageOe(
+            byte[] imageBytes,
+            int pixelWidth,
+            int pixelHeight,
+            int styleIndex,
+            string alt,
+            string format = "png")
         {
             if (imageBytes == null || imageBytes.Length == 0)
             {
@@ -1027,7 +1072,7 @@ namespace OneNoteMarkdown.OneNote
             double height = pixelHeight <= 0 ? 1d : (double)pixelHeight;
 
             XElement image = new XElement(OneNs + "Image",
-                new XAttribute("format", "png"),
+                new XAttribute("format", string.Equals(format, "emf", StringComparison.OrdinalIgnoreCase) ? "emf" : "png"),
                 new XAttribute("alt", string.IsNullOrWhiteSpace(alt) ? "image" : alt),
                 new XElement(OneNs + "Size",
                     new XAttribute("width", width.ToString("0.###", CultureInfo.InvariantCulture)),
@@ -1041,20 +1086,37 @@ namespace OneNoteMarkdown.OneNote
         private XElement CreateDiagramOe(MarkdownBlock block, int styleIndex, string fallbackText)
         {
             DiagramImageRenderer renderer = new DiagramImageRenderer();
-            byte[] pngBytes;
+            bool emf = GetTheme().MermaidImageFormat == RenderImageFormat.Emf;
+            byte[] imageBytes;
             int width;
             int height;
             string error;
-            if (renderer.TryRenderToPng(
-                block == null ? string.Empty : block.CodeLanguage,
-                block == null ? string.Empty : block.Text,
-                GetTheme().DiagramTimeoutMilliseconds,
-                out pngBytes,
-                out width,
-                out height,
-                out error))
+            bool rendered = emf
+                ? renderer.TryRenderToEmf(
+                    block == null ? string.Empty : block.CodeLanguage,
+                    block == null ? string.Empty : block.Text,
+                    GetTheme().DiagramTimeoutMilliseconds,
+                    out imageBytes,
+                    out width,
+                    out height,
+                    out error)
+                : renderer.TryRenderToPng(
+                    block == null ? string.Empty : block.CodeLanguage,
+                    block == null ? string.Empty : block.Text,
+                    GetTheme().DiagramTimeoutMilliseconds,
+                    out imageBytes,
+                    out width,
+                    out height,
+                    out error);
+            if (rendered)
             {
-                return CreateImageOe(pngBytes, width, height, styleIndex, "Mermaid");
+                return CreateImageOe(
+                    imageBytes,
+                    width,
+                    height,
+                    styleIndex,
+                    "Mermaid",
+                    emf ? "emf" : "png");
             }
 
             string language = block == null ? "diagram" : (block.CodeLanguage ?? "diagram");

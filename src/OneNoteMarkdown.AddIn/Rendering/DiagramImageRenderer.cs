@@ -39,7 +39,48 @@ namespace OneNoteMarkdown.Rendering
             out int pixelHeight,
             out string error)
         {
-            pngBytes = null;
+            return TryRender(
+                diagramType,
+                source,
+                timeoutMilliseconds,
+                false,
+                out pngBytes,
+                out pixelWidth,
+                out pixelHeight,
+                out error);
+        }
+
+        public bool TryRenderToEmf(
+            string diagramType,
+            string source,
+            int timeoutMilliseconds,
+            out byte[] emfBytes,
+            out int pixelWidth,
+            out int pixelHeight,
+            out string error)
+        {
+            return TryRender(
+                diagramType,
+                source,
+                timeoutMilliseconds,
+                true,
+                out emfBytes,
+                out pixelWidth,
+                out pixelHeight,
+                out error);
+        }
+
+        private bool TryRender(
+            string diagramType,
+            string source,
+            int timeoutMilliseconds,
+            bool emf,
+            out byte[] imageBytes,
+            out int pixelWidth,
+            out int pixelHeight,
+            out string error)
+        {
+            imageBytes = null;
             pixelWidth = 0;
             pixelHeight = 0;
             error = string.Empty;
@@ -62,13 +103,13 @@ namespace OneNoteMarkdown.Rendering
                 return false;
             }
 
-            string cacheKey = ComputeKey(type + "\n" + body);
+            string cacheKey = ComputeKey((emf ? "emf" : "png") + "\n" + type + "\n" + body);
             CacheEntry cached;
             lock (CacheGate)
             {
                 if (Cache.TryGetValue(cacheKey, out cached))
                 {
-                    pngBytes = (byte[])cached.Bytes.Clone();
+                    imageBytes = (byte[])cached.Bytes.Clone();
                     pixelWidth = cached.Width;
                     pixelHeight = cached.Height;
                     return true;
@@ -94,9 +135,57 @@ namespace OneNoteMarkdown.Rendering
             }
             int width = Math.Min(2400, Math.Max(320, 40 + widestLevel * NodeWidth + (widestLevel - 1) * HorizontalGap));
             int height = Math.Min(2400, Math.Max(160, 40 + (maxLevel + 1) * NodeHeight + maxLevel * VerticalGap));
+            PositionNodes(nodes, width);
 
-            using (Bitmap bitmap = new Bitmap(width, height))
-            using (Graphics graphics = Graphics.FromImage(bitmap))
+            if (emf)
+            {
+                if (!EmfImageRenderer.TryCreate(
+                    width,
+                    height,
+                    delegate(Graphics graphics) { DrawDiagram(graphics, nodes, edges); },
+                    out imageBytes,
+                    out error))
+                {
+                    return false;
+                }
+                pixelWidth = width;
+                pixelHeight = height;
+            }
+            else
+            {
+                using (Bitmap bitmap = new Bitmap(width, height))
+                using (Graphics graphics = Graphics.FromImage(bitmap))
+                using (MemoryStream output = new MemoryStream())
+                {
+                    DrawDiagram(graphics, nodes, edges);
+                    bitmap.Save(output, ImageFormat.Png);
+                    imageBytes = output.ToArray();
+                    pixelWidth = width;
+                    pixelHeight = height;
+                }
+            }
+
+            if (stopwatch.ElapsedMilliseconds > timeoutMilliseconds)
+            {
+                imageBytes = null;
+                error = "Mermaid rendering timed out.";
+                return false;
+            }
+
+            lock (CacheGate)
+            {
+                Cache[cacheKey] = new CacheEntry(imageBytes, pixelWidth, pixelHeight);
+                CacheOrder.Enqueue(cacheKey);
+                while (CacheOrder.Count > MaxCacheEntries)
+                {
+                    Cache.Remove(CacheOrder.Dequeue());
+                }
+            }
+            return true;
+        }
+
+        private static void DrawDiagram(Graphics graphics, List<Node> nodes, List<Edge> edges)
+        {
             using (Font font = new Font("Segoe UI", 10f, FontStyle.Regular, GraphicsUnit.Point))
             using (Pen nodePen = new Pen(Color.FromArgb(91, 33, 182), 1.6f))
             using (Pen edgePen = new Pen(Color.FromArgb(75, 85, 99), 1.5f))
@@ -106,43 +195,17 @@ namespace OneNoteMarkdown.Rendering
             {
                 graphics.Clear(Color.White);
                 graphics.SmoothingMode = SmoothingMode.AntiAlias;
-                graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+                graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
                 edgePen.CustomEndCap = new AdjustableArrowCap(4, 6);
-
-                PositionNodes(nodes, width);
                 for (int i = 0; i < edges.Count; i++)
                 {
-                    if (stopwatch.ElapsedMilliseconds > timeoutMilliseconds)
-                    {
-                        error = "Mermaid rendering timed out.";
-                        return false;
-                    }
                     DrawEdge(graphics, edgePen, edgeTextBrush, font, edges[i]);
                 }
                 for (int i = 0; i < nodes.Count; i++)
                 {
                     DrawNode(graphics, nodePen, nodeBrush, textBrush, font, nodes[i]);
                 }
-
-                using (MemoryStream output = new MemoryStream())
-                {
-                    bitmap.Save(output, ImageFormat.Png);
-                    pngBytes = output.ToArray();
-                    pixelWidth = width;
-                    pixelHeight = height;
-                }
             }
-
-            lock (CacheGate)
-            {
-                Cache[cacheKey] = new CacheEntry(pngBytes, pixelWidth, pixelHeight);
-                CacheOrder.Enqueue(cacheKey);
-                while (CacheOrder.Count > MaxCacheEntries)
-                {
-                    Cache.Remove(CacheOrder.Dequeue());
-                }
-            }
-            return true;
         }
 
         internal static void ClearCache()

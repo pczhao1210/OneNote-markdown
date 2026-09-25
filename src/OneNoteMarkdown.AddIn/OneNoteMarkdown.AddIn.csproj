@@ -115,6 +115,7 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Rendering\LatexImageRenderer.cs" />
     <Compile Include="Rendering\DiagramImageRenderer.cs" />
+    <Compile Include="Rendering\EmfImageRenderer.cs" />
     <Compile Include="Settings\ThemeSettings.cs" />
     <Compile Include="UI\ForceForeground.cs" />
     <Compile Include="UI\DpiAwareness.cs" />

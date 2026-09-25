@@ -18,6 +18,8 @@ namespace OneNoteMarkdown.UI
         private TextBox _txtParagraphSize;
         private TextBox _txtCodeSize;
         private CheckBox _chkLatex;
+        private ComboBox _cboLatexImageFormat;
+        private ComboBox _cboMermaidImageFormat;
         private CheckBox _chkLineNumber;
         private ComboBox _cboPreset;
         private CheckBox _chkPreviewTitle;
@@ -165,6 +167,19 @@ namespace OneNoteMarkdown.UI
             };
             content.Controls.Add(_chkLatex);
             y += 30;
+
+            _cboLatexImageFormat = AddImageFormatField(
+                content,
+                Loc.S("Settings.LatexImageFormat"),
+                ref y,
+                labelFont,
+                inputFont);
+            _cboMermaidImageFormat = AddImageFormatField(
+                content,
+                Loc.S("Settings.MermaidImageFormat"),
+                ref y,
+                labelFont,
+                inputFont);
 
             _chkLineNumber = new CheckBox
             {
@@ -323,6 +338,38 @@ namespace OneNoteMarkdown.UI
             return txt;
         }
 
+        private ComboBox AddImageFormatField(
+            Panel parent,
+            string label,
+            ref int y,
+            Font labelFont,
+            Font inputFont)
+        {
+            Label lbl = new Label
+            {
+                Text = label,
+                Location = new Point(24, y),
+                AutoSize = true,
+                Font = labelFont,
+                ForeColor = Color.FromArgb(51, 51, 51)
+            };
+            parent.Controls.Add(lbl);
+            y += 22;
+
+            ComboBox combo = new ComboBox
+            {
+                Location = new Point(24, y),
+                Size = new Size(240, 26),
+                Font = inputFont,
+                DropDownStyle = ComboBoxStyle.DropDownList
+            };
+            combo.Items.Add(Loc.S("Settings.ImageFormat.Png"));
+            combo.Items.Add(Loc.S("Settings.ImageFormat.Emf"));
+            parent.Controls.Add(combo);
+            y += 34;
+            return combo;
+        }
+
         private void LoadSettings()
         {
             ThemeSettings s = ThemeSettings.Load();
@@ -332,6 +379,8 @@ namespace OneNoteMarkdown.UI
             _txtParagraphSize.Text = s.ParagraphFontSize.ToString(CultureInfo.InvariantCulture);
             _txtCodeSize.Text = s.CodeFontSize.ToString(CultureInfo.InvariantCulture);
             _chkLatex.Checked = s.EnableLatexToImage;
+            _cboLatexImageFormat.SelectedIndex = s.LatexImageFormat == RenderImageFormat.Emf ? 1 : 0;
+            _cboMermaidImageFormat.SelectedIndex = s.MermaidImageFormat == RenderImageFormat.Emf ? 1 : 0;
             _chkLineNumber.Checked = s.EnableCodeLineNumber;
             _chkRemoteImages.Checked = s.AllowRemoteImages;
             _chkImportKeepSource.Checked = s.ImportKeepSource;
@@ -373,6 +422,8 @@ namespace OneNoteMarkdown.UI
                     "font.size.paragraph=" + _txtParagraphSize.Text.Trim() + "\r\n" +
                     "font.size.code=" + _txtCodeSize.Text.Trim() + "\r\n" +
                     "enable.latex.image=" + (_chkLatex.Checked ? "true" : "false") + "\r\n" +
+                    "latex.imageFormat=" + (_cboLatexImageFormat.SelectedIndex == 1 ? "emf" : "png") + "\r\n" +
+                    "mermaid.imageFormat=" + (_cboMermaidImageFormat.SelectedIndex == 1 ? "emf" : "png") + "\r\n" +
                     "enable.code.lineNumber=" + (_chkLineNumber.Checked ? "true" : "false") + "\r\n" +
                     "theme.preset=" + presetValue + "\r\n" +
                     "preview.title.show=" + (_chkPreviewTitle.Checked ? "true" : "false") + "\r\n" +
