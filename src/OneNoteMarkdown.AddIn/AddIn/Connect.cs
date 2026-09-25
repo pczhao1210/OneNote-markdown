@@ -264,11 +264,6 @@ namespace OneNoteMarkdown.AddIn
             UiThread.Post(RenderPageMarkdownCommand.Execute);
         }
 
-        public void OnJumpPreviewSource(IRibbonControl control)
-        {
-            UiThread.Post(JumpToPreviewSourceCommand.Execute);
-        }
-
         public void OnResetPreviewLayout(IRibbonControl control)
         {
             UiThread.Post(ResetPreviewLayoutCommand.Execute);
@@ -317,7 +312,6 @@ namespace OneNoteMarkdown.AddIn
             {"btnExportMarkdownClipboard", "Ribbon.CopyMarkdown"},
             {"btnRenderSelection", "Ribbon.RenderSelection"},
             {"btnRenderPage", "Ribbon.RenderPage"},
-            {"btnJumpPreviewSource", "Ribbon.JumpSource"},
             {"btnResetPreviewLayout", "Ribbon.ResetLayout"},
             {"btnDeletePreview", "Ribbon.DeletePreview"},
             {"btnApplyPreviewDefaults", "Ribbon.ApplyDefaults"},
@@ -333,7 +327,6 @@ namespace OneNoteMarkdown.AddIn
             {"btnExportMarkdownClipboard", "Ribbon.CopyMarkdown.Tip"},
             {"btnRenderSelection", "Ribbon.RenderSelection.Tip"},
             {"btnRenderPage", "Ribbon.RenderPage.Tip"},
-            {"btnJumpPreviewSource", "Ribbon.JumpSource.Tip"},
             {"btnResetPreviewLayout", "Ribbon.ResetLayout.Tip"},
             {"btnDeletePreview", "Ribbon.DeletePreview.Tip"},
             {"btnApplyPreviewDefaults", "Ribbon.ApplyDefaults.Tip"},
@@ -349,7 +342,6 @@ namespace OneNoteMarkdown.AddIn
             {"btnExportMarkdownClipboard", "Ribbon.CopyMarkdown.SuperTip"},
             {"btnRenderSelection", "Ribbon.RenderSelection.SuperTip"},
             {"btnRenderPage", "Ribbon.RenderPage.SuperTip"},
-            {"btnJumpPreviewSource", "Ribbon.JumpSource.SuperTip"},
             {"btnResetPreviewLayout", "Ribbon.ResetLayout.SuperTip"},
             {"btnDeletePreview", "Ribbon.DeletePreview.SuperTip"},
             {"btnApplyPreviewDefaults", "Ribbon.ApplyDefaults.SuperTip"},
