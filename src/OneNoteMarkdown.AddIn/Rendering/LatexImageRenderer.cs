@@ -9,7 +9,10 @@ using System.Text.RegularExpressions;
 using OneNoteMarkdown.Logging;
 using WpfMath;
 using WpfMath.Parsers;
+using WpfMath.Rendering;
+using XamlMath;
 using XamlMath.Exceptions;
+using Media = System.Windows.Media;
 
 namespace OneNoteMarkdown.Rendering
 {
@@ -64,7 +67,7 @@ namespace OneNoteMarkdown.Rendering
             }
 
             string font = string.IsNullOrWhiteSpace(textFontFamily) ? "Cambria Math" : textFontFamily.Trim();
-            string cacheKey = ComputeKey(font + "\n" + text);
+            string cacheKey = ComputeKey("png\n" + font + "\n" + text);
             CacheEntry cached;
             lock (CacheLock)
             {
@@ -125,6 +128,87 @@ namespace OneNoteMarkdown.Rendering
                 error = ex.Message;
                 return false;
             }
+        }
+
+        public bool TryRenderToEmf(
+            string latex,
+            string textFontFamily,
+            out byte[] emfBytes,
+            out int pixelWidth,
+            out int pixelHeight,
+            out string error)
+        {
+            emfBytes = null;
+            pixelWidth = 0;
+            pixelHeight = 0;
+            error = string.Empty;
+
+            string text = Normalize(latex);
+            if (text.Length == 0)
+            {
+                error = "The formula is empty.";
+                return false;
+            }
+
+            string font = string.IsNullOrWhiteSpace(textFontFamily) ? "Cambria Math" : textFontFamily.Trim();
+            string cacheKey = ComputeKey("emf\n" + font + "\n" + text);
+            CacheEntry cached;
+            lock (CacheLock)
+            {
+                if (Cache.TryGetValue(cacheKey, out cached))
+                {
+                    emfBytes = (byte[])cached.Bytes.Clone();
+                    pixelWidth = cached.Width;
+                    pixelHeight = cached.Height;
+                    return true;
+                }
+            }
+
+            Media.Geometry geometry;
+            System.Windows.Rect bounds;
+            if (!TryBuildGeometry(text, font, TexStyle.Display, out geometry, out bounds, out error))
+            {
+                return false;
+            }
+
+            int width = Math.Max(1, (int)Math.Ceiling(bounds.Width) + 4);
+            int height = Math.Max(1, (int)Math.Ceiling(bounds.Height) + 4);
+            if (width > 8192 || height > 8192)
+            {
+                error = "The formula exceeds the EMF size limit.";
+                return false;
+            }
+
+            if (!EmfImageRenderer.TryCreate(
+                width,
+                height,
+                delegate(Graphics graphics)
+                {
+                    EmfImageRenderer.DrawGeometry(
+                        graphics,
+                        geometry,
+                        (float)(2d - bounds.X),
+                        (float)(2d - bounds.Y),
+                        Color.Black);
+                },
+                out emfBytes,
+                out error))
+            {
+                return false;
+            }
+
+            pixelWidth = width;
+            pixelHeight = height;
+            lock (CacheLock)
+            {
+                Cache[cacheKey] = new CacheEntry(emfBytes, width, height);
+                CacheOrder.Enqueue(cacheKey);
+                while (CacheOrder.Count > MaxCacheEntries)
+                {
+                    Cache.Remove(CacheOrder.Dequeue());
+                }
+            }
+            return true;
         }
 
         public bool TryRenderInlineTextToPng(
@@ -275,6 +359,134 @@ namespace OneNoteMarkdown.Rendering
             }
         }
 
+        public bool TryRenderInlineTextToEmf(
+            string markdown,
+            string textFontFamily,
+            double textFontSize,
+            out byte[] emfBytes,
+            out int pixelWidth,
+            out int pixelHeight,
+            out string error)
+        {
+            emfBytes = null;
+            pixelWidth = 0;
+            pixelHeight = 0;
+            error = string.Empty;
+
+            string source = markdown ?? string.Empty;
+            MatchCollection matches = InlineFormulaRegex.Matches(source);
+            if (matches.Count == 0)
+            {
+                error = "No complete inline formula was found.";
+                return false;
+            }
+
+            List<InlineVectorPart> parts = new List<InlineVectorPart>();
+            string formulaFont = string.IsNullOrWhiteSpace(textFontFamily) ? "Cambria Math" : textFontFamily.Trim();
+            int offset = 0;
+            for (int i = 0; i < matches.Count; i++)
+            {
+                Match match = matches[i];
+                if (match.Index > offset)
+                {
+                    parts.Add(InlineVectorPart.FromText(source.Substring(offset, match.Index - offset)));
+                }
+
+                Media.Geometry geometry;
+                System.Windows.Rect bounds;
+                if (!TryBuildGeometry(
+                    match.Groups[1].Value,
+                    formulaFont,
+                    TexStyle.Text,
+                    out geometry,
+                    out bounds,
+                    out error))
+                {
+                    return false;
+                }
+                parts.Add(InlineVectorPart.FromGeometry(geometry, bounds));
+                offset = match.Index + match.Length;
+            }
+            if (offset < source.Length)
+            {
+                parts.Add(InlineVectorPart.FromText(source.Substring(offset)));
+            }
+
+            string fontName = string.IsNullOrWhiteSpace(textFontFamily) ? "Calibri" : textFontFamily.Trim();
+            float fontSize = (float)(textFontSize <= 0d ? 11d : textFontSize);
+            using (Font font = new Font(fontName, fontSize, FontStyle.Regular, GraphicsUnit.Point))
+            using (Bitmap measureBitmap = new Bitmap(1, 1, PixelFormat.Format32bppArgb))
+            using (Graphics measure = Graphics.FromImage(measureBitmap))
+            {
+                int width = 8;
+                int height = 1;
+                for (int i = 0; i < parts.Count; i++)
+                {
+                    InlineVectorPart part = parts[i];
+                    if (part.Geometry != null)
+                    {
+                        part.Width = Math.Max(1, (int)Math.Ceiling(part.Bounds.Width));
+                        part.Height = Math.Max(1, (int)Math.Ceiling(part.Bounds.Height));
+                    }
+                    else
+                    {
+                        SizeF size = measure.MeasureString(
+                            part.Text,
+                            font,
+                            int.MaxValue,
+                            StringFormat.GenericTypographic);
+                        part.Width = Math.Max(1, (int)Math.Ceiling(size.Width));
+                        part.Height = Math.Max(1, (int)Math.Ceiling(size.Height));
+                    }
+                    width += part.Width;
+                    height = Math.Max(height, part.Height);
+                }
+
+                width = Math.Min(width, 8192);
+                height = Math.Min(height + 8, 8192);
+                if (!EmfImageRenderer.TryCreate(
+                    width,
+                    height,
+                    delegate(Graphics graphics)
+                    {
+                        int x = 4;
+                        for (int i = 0; i < parts.Count && x < width - 4; i++)
+                        {
+                            InlineVectorPart part = parts[i];
+                            int y = Math.Max(2, (height - part.Height) / 2);
+                            if (part.Geometry != null)
+                            {
+                                EmfImageRenderer.DrawGeometry(
+                                    graphics,
+                                    part.Geometry,
+                                    (float)(x - part.Bounds.X),
+                                    (float)(y - part.Bounds.Y),
+                                    Color.Black);
+                            }
+                            else
+                            {
+                                graphics.DrawString(
+                                    part.Text,
+                                    font,
+                                    Brushes.Black,
+                                    new PointF(x, y),
+                                    StringFormat.GenericTypographic);
+                            }
+                            x += part.Width;
+                        }
+                    },
+                    out emfBytes,
+                    out error))
+                {
+                    return false;
+                }
+
+                pixelWidth = width;
+                pixelHeight = height;
+                return true;
+            }
+        }
+
         internal static void ClearCache()
         {
             lock (CacheLock)
@@ -308,6 +520,58 @@ namespace OneNoteMarkdown.Rendering
             }
 
             return text.Replace("\r\n", "\n").Replace('\r', '\n').Trim();
+        }
+
+        private static bool TryBuildGeometry(
+            string latex,
+            string font,
+            TexStyle style,
+            out Media.Geometry geometry,
+            out System.Windows.Rect bounds,
+            out string error)
+        {
+            geometry = null;
+            bounds = System.Windows.Rect.Empty;
+            error = string.Empty;
+            try
+            {
+                TexFormula formula;
+                lock (ParserLock)
+                {
+                    formula = WpfTeXFormulaParser.Instance.Parse(Normalize(latex), "text");
+                }
+                TexEnvironment environment = WpfTeXEnvironment.Create(
+                    style,
+                    RenderScale,
+                    font,
+                    Media.Brushes.Transparent,
+                    Media.Brushes.Black);
+                geometry = WpfTeXFormulaExtensions.RenderToGeometry(
+                    formula,
+                    environment,
+                    RenderScale,
+                    0d,
+                    0d);
+                bounds = geometry == null ? System.Windows.Rect.Empty : geometry.Bounds;
+                if (geometry == null || bounds.IsEmpty || bounds.Width <= 0d || bounds.Height <= 0d)
+                {
+                    geometry = null;
+                    error = "The formula renderer returned empty vector geometry.";
+                    return false;
+                }
+                return true;
+            }
+            catch (TexException ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("LaTeX vector rendering failed", ex);
+                error = ex.Message;
+                return false;
+            }
         }
 
         private static bool TryReadPngSize(byte[] png, out int width, out int height)
@@ -352,6 +616,25 @@ namespace OneNoteMarkdown.Rendering
             public static InlinePart FromImage(Bitmap value)
             {
                 return new InlinePart { Image = value };
+            }
+        }
+
+        private sealed class InlineVectorPart
+        {
+            public string Text;
+            public Media.Geometry Geometry;
+            public System.Windows.Rect Bounds;
+            public int Width;
+            public int Height;
+
+            public static InlineVectorPart FromText(string value)
+            {
+                return new InlineVectorPart { Text = value ?? string.Empty };
+            }
+
+            public static InlineVectorPart FromGeometry(Media.Geometry geometry, System.Windows.Rect bounds)
+            {
+                return new InlineVectorPart { Geometry = geometry, Bounds = bounds };
             }
         }
     }

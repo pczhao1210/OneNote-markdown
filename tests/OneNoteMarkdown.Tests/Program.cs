@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -31,6 +32,7 @@ namespace OneNoteMarkdown.Tests
             Run("Nested source structure", TestNestedSourceStructure);
             Run("Inline escaping", TestInlineEscaping);
             Run("Inline LaTeX rendering", TestInlineLatexRendering);
+            Run("EMF vector rendering", TestEmfVectorRendering);
             Run("Remote image request", TestRemoteImageRequest);
             Run("Import source default", TestImportSourceDefault);
             Run("DPI-aware settings", TestDpiAwareSettings);
@@ -305,6 +307,73 @@ namespace OneNoteMarkdown.Tests
             Assert(width > 100 && height > 10, "Inline LaTeX image dimensions were invalid.");
         }
 
+        private static void TestEmfVectorRendering()
+        {
+            LatexImageRenderer latex = new LatexImageRenderer();
+            byte[] formula;
+            int formulaWidth;
+            int formulaHeight;
+            string error;
+            Assert(latex.TryRenderToEmf(
+                @"E=mc^2+\frac{a}{b}",
+                "Cambria Math",
+                out formula,
+                out formulaWidth,
+                out formulaHeight,
+                out error),
+                "LaTeX EMF did not render: " + error);
+            Assert(IsEmf(formula) && !ContainsPng(formula),
+                "LaTeX EMF was invalid or contained a raster PNG payload.");
+            AssertReadableEmf(formula);
+
+            byte[] inline;
+            int inlineWidth;
+            int inlineHeight;
+            Assert(latex.TryRenderInlineTextToEmf(
+                "Energy $E=mc^2$ remains vector.",
+                "Calibri",
+                11d,
+                out inline,
+                out inlineWidth,
+                out inlineHeight,
+                out error),
+                "Inline LaTeX EMF did not render: " + error);
+            Assert(IsEmf(inline) && !ContainsPng(inline) &&
+                inlineWidth > formulaWidth && inlineHeight > 10,
+                "Inline LaTeX EMF was not a valid vector line.");
+            AssertReadableEmf(inline);
+
+            DiagramImageRenderer diagram = new DiagramImageRenderer();
+            byte[] flowchart;
+            int diagramWidth;
+            int diagramHeight;
+            Assert(diagram.TryRenderToEmf(
+                "mermaid",
+                "flowchart TD\nA[Start] --> B{Ready?}\nB -->|Yes| C[Done]",
+                3000,
+                out flowchart,
+                out diagramWidth,
+                out diagramHeight,
+                out error),
+                "Mermaid EMF did not render: " + error);
+            Assert(IsEmf(flowchart) && !ContainsPng(flowchart) &&
+                diagramWidth >= 320 && diagramHeight >= 160,
+                "Mermaid EMF was invalid or contained raster image data.");
+            AssertReadableEmf(flowchart);
+
+            PageWriter writer = (PageWriter)System.Runtime.Serialization.FormatterServices
+                .GetUninitializedObject(typeof(PageWriter));
+            MethodInfo createImageOe = typeof(PageWriter).GetMethod(
+                "CreateImageOe",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            XElement imageOe = (XElement)createImageOe.Invoke(
+                writer,
+                new object[] { formula, formulaWidth, formulaHeight, 0, "LaTeX", "emf" });
+            XNamespace one = "http://schemas.microsoft.com/office/onenote/2013/onenote";
+            Assert((string)imageOe.Element(one + "Image").Attribute("format") == "emf",
+                "PageWriter did not declare the vector image as EMF.");
+        }
+
         private static void TestRemoteImageRequest()
         {
             MethodInfo method = typeof(PageWriter).GetMethod(
@@ -350,6 +419,9 @@ namespace OneNoteMarkdown.Tests
             object settings = Activator.CreateInstance(settingsType, true);
             bool keepSource = (bool)settingsType.GetProperty("ImportKeepSource").GetValue(settings);
             Assert(!keepSource, "Imported Markdown source must be disabled by default.");
+            Assert(settingsType.GetProperty("LatexImageFormat").GetValue(settings).ToString() == "Png" &&
+                settingsType.GetProperty("MermaidImageFormat").GetValue(settings).ToString() == "Png",
+                "LaTeX and Mermaid image formats must default to PNG.");
         }
 
         private static void TestManagedPreviewReuse()
@@ -462,6 +534,44 @@ namespace OneNoteMarkdown.Tests
             return "<one:Page xmlns:one=\"" + OneNs + "\" ID=\"page1\" name=\"Test\">" +
                 "<one:Outline><one:OEChildren>" + oeXml +
                 "</one:OEChildren></one:Outline></one:Page>";
+        }
+
+        private static bool IsEmf(byte[] bytes)
+        {
+            return bytes != null && bytes.Length > 44 &&
+                bytes[40] == 0x20 && bytes[41] == 0x45 &&
+                bytes[42] == 0x4D && bytes[43] == 0x46;
+        }
+
+        private static bool ContainsPng(byte[] bytes)
+        {
+            if (bytes == null) return false;
+            byte[] signature = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+            for (int i = 0; i <= bytes.Length - signature.Length; i++)
+            {
+                bool match = true;
+                for (int j = 0; j < signature.Length; j++)
+                {
+                    if (bytes[i + j] != signature[j])
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) return true;
+            }
+            return false;
+        }
+
+        private static void AssertReadableEmf(byte[] bytes)
+        {
+            using (MemoryStream stream = new MemoryStream(bytes, false))
+            using (System.Drawing.Imaging.Metafile metafile =
+                new System.Drawing.Imaging.Metafile(stream))
+            {
+                Assert(metafile.Width > 0 && metafile.Height > 0,
+                    "The generated EMF could not be loaded as a metafile.");
+            }
         }
 
         private static void Run(string name, Action test)
