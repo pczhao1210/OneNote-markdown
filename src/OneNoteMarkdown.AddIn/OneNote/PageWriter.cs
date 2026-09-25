@@ -1537,17 +1537,28 @@ namespace OneNoteMarkdown.OneNote
                 AddMeta(oes[i], "md-preview-id", previewId);
                 AddMeta(oes[i], "md-preview-role", role);
                 AddMeta(oes[i], "md-preview-source-key", encodedSourceKey);
+                AddMeta(oes[i], "md-preview-source-hash", sourceHash);
+                AddMeta(oes[i], "md-preview-body-hash", bodyHash);
             }
             for (int i = 0; i < content.Count; i++)
             {
                 AddMeta(content[i], "md-preview-group", previewId);
             }
 
-            XElement anchor = oes[0];
-            AddMeta(anchor, "md-preview-source-hash", sourceHash);
-            AddMeta(anchor, "md-preview-body-hash", bodyHash);
-            AddMeta(anchor, "md-preview-source", EncodeMeta(NormalizeMarkdown(markdownSource)));
-            AddMeta(anchor, "md-preview-base-directory", EncodeMeta(baseDirectory ?? string.Empty));
+            string encodedSource = EncodeMeta(NormalizeMarkdown(markdownSource));
+            string encodedBaseDirectory = EncodeMeta(baseDirectory ?? string.Empty);
+            XElement contentAnchor = content[0];
+            AddMeta(contentAnchor, "md-preview-source", encodedSource);
+            AddMeta(contentAnchor, "md-preview-base-directory", encodedBaseDirectory);
+
+            XElement fallbackAnchor = hasTitle
+                ? oes[0]
+                : content[content.Count - 1];
+            if (!ReferenceEquals(fallbackAnchor, contentAnchor))
+            {
+                AddMeta(fallbackAnchor, "md-preview-source", encodedSource);
+                AddMeta(fallbackAnchor, "md-preview-base-directory", encodedBaseDirectory);
+            }
         }
 
         private static XElement FindPreviewTitleOe(XElement outline)
@@ -1568,7 +1579,7 @@ namespace OneNoteMarkdown.OneNote
             return text == null ? string.Empty : StripHtml(text.Value);
         }
 
-        private static string ComputeManagedBodyHash(XElement outline)
+        internal static string ComputeManagedBodyHash(XElement outline)
         {
             if (outline == null) return string.Empty;
             List<XElement> content = outline.Descendants(OneNs + "OE").Where(delegate(XElement oe)
@@ -1589,11 +1600,19 @@ namespace OneNoteMarkdown.OneNote
                 value.Append("OE|");
                 foreach (XElement text in oe.DescendantsAndSelf(OneNs + "T"))
                 {
-                    value.Append("T:").Append(NormalizeManagedText(text.Value)).Append('|');
+                    string normalized = NormalizeManagedText(text.Value);
+                    if (normalized.Length > 0)
+                    {
+                        value.Append("T:").Append(normalized).Append('|');
+                    }
                 }
                 foreach (XElement data in oe.Descendants(OneNs + "Data"))
                 {
-                    value.Append("D:").Append(Regex.Replace(data.Value ?? string.Empty, "\\s+", string.Empty)).Append('|');
+                    string normalized = Regex.Replace(data.Value ?? string.Empty, "\\s+", string.Empty);
+                    if (normalized.Length > 0)
+                    {
+                        value.Append("D:").Append(normalized).Append('|');
+                    }
                 }
             }
             return ComputeHash(value.ToString());

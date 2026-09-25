@@ -37,6 +37,7 @@ namespace OneNoteMarkdown.Tests
             Run("Import source default", TestImportSourceDefault);
             Run("DPI-aware settings", TestDpiAwareSettings);
             Run("Managed preview reuse", TestManagedPreviewReuse);
+            Run("Managed preview conflict hashing", TestManagedPreviewConflictHashing);
             Run("Preview source navigation", TestPreviewSourceNavigation);
             Run("Hidden UI anchor", TestHiddenUiAnchor);
             Run("Managed preview export", TestManagedPreviewExport);
@@ -529,10 +530,67 @@ namespace OneNoteMarkdown.Tests
                 oe.Elements(one + "Meta").Any(meta =>
                     (string)meta.Attribute("name") == "md-preview-source-key")),
                 "Managed preview identity was not replicated across all preview paragraphs.");
-            XElement baseMeta = outline.Descendants(one + "Meta").Single(meta =>
-                (string)meta.Attribute("name") == "md-preview-base-directory");
-            Assert(Encoding.UTF8.GetString(Convert.FromBase64String((string)baseMeta.Attribute("content"))) == @"C:\notes",
+            XElement[] baseMetadata = outline.Descendants(one + "Meta").Where(meta =>
+                (string)meta.Attribute("name") == "md-preview-base-directory").ToArray();
+            Assert(baseMetadata.Length >= 1 && baseMetadata.All(meta =>
+                    Encoding.UTF8.GetString(Convert.FromBase64String((string)meta.Attribute("content"))) == @"C:\notes"),
                 "Managed preview did not retain the relative-image base directory.");
+        }
+
+        private static void TestManagedPreviewConflictHashing()
+        {
+            XNamespace one = OneNs;
+            XElement outline = new XElement(one + "Outline",
+                new XElement(one + "OEChildren",
+                    new XElement(one + "OE", new XElement(one + "T", "Preview title")),
+                    new XElement(one + "OE", new XElement(one + "T", "body")),
+                    new XElement(one + "OE", new XElement(one + "T", string.Empty))));
+            MethodInfo markMethod = typeof(PageWriter).GetMethod(
+                "MarkManagedPreview",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            MethodInfo hashMethod = typeof(PageWriter).GetMethod(
+                "ComputeManagedBodyHash",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert(markMethod != null && hashMethod != null,
+                "Managed preview conflict helpers were not found.");
+
+            markMethod.Invoke(
+                null,
+                new object[]
+                {
+                    outline,
+                    "preview-id",
+                    "PagePreview",
+                    Convert.ToBase64String(Encoding.UTF8.GetBytes("page:current")),
+                    "source-hash",
+                    "# source",
+                    @"C:\notes",
+                    true
+                });
+
+            XElement[] oes = outline.Descendants(one + "OE").ToArray();
+            Assert(oes.All(oe => oe.Elements(one + "Meta").Any(meta =>
+                    (string)meta.Attribute("name") == "md-preview-body-hash")),
+                "Conflict baseline was not replicated across preview paragraphs.");
+            string expectedHash = (string)oes[1].Elements(one + "Meta").Single(meta =>
+                (string)meta.Attribute("name") == "md-preview-body-hash").Attribute("content");
+
+            oes[2].Element(one + "T").Remove();
+            string normalizedHash = (string)hashMethod.Invoke(null, new object[] { outline });
+            Assert(expectedHash == normalizedHash,
+                "OneNote removing an empty text node must not create a false preview conflict.");
+
+            oes[0].Remove();
+            string afterTitleDeletion = (string)hashMethod.Invoke(null, new object[] { outline });
+            string retainedHash = (string)outline.Descendants(one + "Meta").First(meta =>
+                (string)meta.Attribute("name") == "md-preview-body-hash").Attribute("content");
+            Assert(retainedHash == afterTitleDeletion,
+                "Deleting a preview title must not discard or invalidate the conflict baseline.");
+
+            outline.Descendants(one + "T").First().Value = "edited body";
+            string editedHash = (string)hashMethod.Invoke(null, new object[] { outline });
+            Assert(retainedHash != editedHash,
+                "Editing preview body text must still be detected as a conflict.");
         }
 
         private static void TestPreviewSourceNavigation()
