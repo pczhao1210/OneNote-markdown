@@ -4,7 +4,7 @@ param(
     [ValidateSet("Debug", "Release")]
     [string]$Configuration = "Release",
     [ValidatePattern("^[0-9A-Za-z][0-9A-Za-z.-]*$")]
-    [string]$ReleaseName = "1.2.1-fix.1"
+    [string]$ReleaseName = "1.2.1-fix.2"
 )
 
 $ErrorActionPreference = "Stop"
