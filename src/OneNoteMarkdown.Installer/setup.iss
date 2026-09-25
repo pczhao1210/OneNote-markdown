@@ -2,7 +2,7 @@
   #define InstallerArch "x64"
 #endif
 #ifndef ReleaseName
-  #define ReleaseName "1.2.1-fix.3"
+  #define ReleaseName "1.2.1-fix.4"
 #endif
 #ifndef BuildConfiguration
   #define BuildConfiguration "Release"
@@ -60,8 +60,8 @@ PrivilegesRequired=admin
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-VersionInfoVersion=1.2.1.3
-VersionInfoProductVersion=1.2.1.3
+VersionInfoVersion=1.2.1.4
+VersionInfoProductVersion=1.2.1.4
 
 [Languages]
 Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
