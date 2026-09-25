@@ -38,7 +38,6 @@ namespace OneNoteMarkdown.Tests
             Run("DPI-aware settings", TestDpiAwareSettings);
             Run("Managed preview reuse", TestManagedPreviewReuse);
             Run("Managed preview conflict hashing", TestManagedPreviewConflictHashing);
-            Run("Preview source navigation", TestPreviewSourceNavigation);
             Run("Hidden UI anchor", TestHiddenUiAnchor);
             Run("Managed preview export", TestManagedPreviewExport);
             Run("Offline Mermaid rendering", TestOfflineMermaidRendering);
@@ -591,52 +590,6 @@ namespace OneNoteMarkdown.Tests
             string editedHash = (string)hashMethod.Invoke(null, new object[] { outline });
             Assert(retainedHash != editedHash,
                 "Editing preview body text must still be detected as a conflict.");
-        }
-
-        private static void TestPreviewSourceNavigation()
-        {
-            XNamespace one = OneNs;
-            XElement source = new XElement(one + "Outline",
-                new XElement(one + "Position",
-                    new XAttribute("x", "36"),
-                    new XAttribute("y", "120")),
-                new XElement(one + "OEChildren",
-                    new XElement(one + "OE",
-                        new XAttribute("objectID", "page-source-oe"),
-                        new XElement(one + "T", "# Source"))));
-            XElement preview = new XElement(one + "Outline",
-                new XElement(one + "OEChildren",
-                    new XElement(one + "OE",
-                        new XElement(one + "Meta",
-                            new XAttribute("name", "md-preview-role"),
-                            new XAttribute("content", "PagePreview")),
-                        new XElement(one + "T", "Preview"))));
-            XElement page = new XElement(one + "Page", source, preview);
-            MethodInfo resolve = typeof(OneNoteProvider).GetMethod(
-                "ResolvePageSourceObjectId",
-                BindingFlags.Static | BindingFlags.NonPublic);
-            Assert(resolve != null, "Page preview source resolver was not found.");
-            string sourceKey = "page:{page-id}";
-            Assert((string)resolve.Invoke(null, new object[] { page, preview, sourceKey }) ==
-                "page-source-oe",
-                "Page preview navigation did not resolve the first source paragraph.");
-
-            string encodedSourceKey = Convert.ToBase64String(Encoding.UTF8.GetBytes(sourceKey));
-            XElement imported = new XElement(one + "Outline",
-                new XElement(one + "Position",
-                    new XAttribute("x", "36"),
-                    new XAttribute("y", "200")),
-                new XElement(one + "OEChildren",
-                    new XElement(one + "OE",
-                        new XAttribute("objectID", "import-source-oe"),
-                        new XElement(one + "Meta",
-                            new XAttribute("name", "md-import-source-key"),
-                            new XAttribute("content", encodedSourceKey)),
-                        new XElement(one + "T", "# Imported"))));
-            page.AddFirst(imported);
-            Assert((string)resolve.Invoke(null, new object[] { page, preview, sourceKey }) ==
-                "import-source-oe",
-                "Imported page preview navigation did not prefer its linked editable source.");
         }
 
         private static void TestHiddenUiAnchor()

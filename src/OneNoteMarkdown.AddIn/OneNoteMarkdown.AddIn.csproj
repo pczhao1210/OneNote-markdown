@@ -85,7 +85,6 @@
     <Compile Include="Features\ExportMarkdownToClipboardCommand.cs" />
     <Compile Include="Features\HotkeyRouter.cs" />
     <Compile Include="Features\ImportMarkdownCommand.cs" />
-    <Compile Include="Features\JumpToPreviewSourceCommand.cs" />
     <Compile Include="Features\LivePreviewService.cs" />
     <Compile Include="Features\MarkdownExportService.cs" />
     <Compile Include="Features\OpenHelpCommand.cs" />

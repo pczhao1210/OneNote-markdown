@@ -12,7 +12,6 @@ Version: `1.2.1-fix.1`. Install the package matching OneNote itself: `x86`, `x64
 - New previews default to the source's right side. Settings can place them below and control the gap and width.
 - Moving a preview, resizing it, or editing/deleting its title is preserved on refresh. Use **Reset Layout** to reapply layout settings.
 - Use **Apply Defaults** when you explicitly want to reapply the current theme, default title, and layout to the full-page preview.
-- **Go to Source** navigates to the linked page, text box, or selection start. This is region-level navigation only; there is no paragraph synchronization or synchronized scrolling.
 - **Delete Preview** removes only the managed preview under the cursor.
 
 Managed previews use internal metadata rather than title text or coordinates. Repeated `F5` updates the full-page preview instead of appending another copy. A legacy block is never claimed or deleted only because its title says `Markdown Render`.
@@ -82,7 +81,6 @@ Logs contain status, timing, and errors but not Markdown source text:
 - 新预览默认在来源右侧；可在设置中改为下方，并调整间距和宽度。
 - 移动、调整宽度、修改或删除标题后，刷新会保留这些改动；需要恢复时使用 **重置布局**。
 - 需要将当前主题、默认标题和布局显式重新应用到整页预览时，使用 **应用预设**。
-- **跳转源码**仅跳转到关联页面、正文框或选区起点，不提供段落互相定位或同步滚动。
 - **删除预览**只删除光标所在的插件托管预览。
 
 预览身份使用内部元数据，不依赖标题或坐标。连续按 `F5` 会更新整页预览，不会重复追加。旧内容不会仅因标题为 `Markdown Render` 就被认定或删除。
