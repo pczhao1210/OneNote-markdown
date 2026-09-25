@@ -128,9 +128,10 @@ namespace OneNoteMarkdown.Markdown
             return new MarkdownBlock { Kind = MarkdownBlockKind.Blank, Text = string.Empty, Level = 0 };
         }
 
-        public static MarkdownBlock Blockquote(string text)
+        public static MarkdownBlock Blockquote(string text, int level)
         {
-            return new MarkdownBlock { Kind = MarkdownBlockKind.Blockquote, Text = text ?? string.Empty, Level = 0 };
+            if (level < 1) level = 1;
+            return new MarkdownBlock { Kind = MarkdownBlockKind.Blockquote, Text = text ?? string.Empty, Level = level };
         }
 
         public static MarkdownBlock HorizontalRule()

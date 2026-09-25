@@ -1,44 +1,30 @@
 using System;
-using System.Drawing;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace OneNoteMarkdown.UI
 {
-    internal sealed class FileDialogHost : Form
+    internal static class FileDialogHost
     {
-        public FileDialogHost()
-        {
-            FormBorderStyle = FormBorderStyle.None;
-            ShowInTaskbar = false;
-            StartPosition = FormStartPosition.Manual;
-            Location = new Point(-32000, -32000);
-            Size = new Size(1, 1);
-            Opacity = 0;
-            TopMost = true;
-        }
-
         public static DialogResult ShowOpen(OpenFileDialog dialog)
         {
-            using (FileDialogHost host = new FileDialogHost())
-            {
-                host.Show(UiThread.Anchor);
-                ForceForeground.Apply(host);
-                DialogResult result = dialog.ShowDialog(host);
-                host.Close();
-                return result;
-            }
+            return dialog.ShowDialog(GetOwner());
         }
 
         public static DialogResult ShowSave(SaveFileDialog dialog)
         {
-            using (FileDialogHost host = new FileDialogHost())
-            {
-                host.Show(UiThread.Anchor);
-                ForceForeground.Apply(host);
-                DialogResult result = dialog.ShowDialog(host);
-                host.Close();
-                return result;
-            }
+            return dialog.ShowDialog(GetOwner());
         }
+
+        private static IWin32Window GetOwner()
+        {
+            IntPtr foreground = GetForegroundWindow();
+            return foreground == IntPtr.Zero
+                ? UiThread.Anchor
+                : new WindowWrapper(foreground);
+        }
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
     }
 }

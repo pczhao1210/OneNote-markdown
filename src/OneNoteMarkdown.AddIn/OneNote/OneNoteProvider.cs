@@ -294,12 +294,54 @@ namespace OneNoteMarkdown.OneNote
         {
             if (outline == null) return string.Empty;
             List<string> lines = new List<string>();
-            foreach (XElement text in outline.Descendants(OneNs + "T"))
+            XElement children = outline.Element(OneNs + "OEChildren");
+            if (children != null)
             {
-                string plain = HtmlToPlainText(text.Value, true);
-                if (!string.IsNullOrWhiteSpace(plain)) lines.Add(plain);
+                AppendOutlineSourceLines(children, 0, lines);
+            }
+            else
+            {
+                foreach (XElement text in outline.Descendants(OneNs + "T"))
+                {
+                    string plain = HtmlToPlainText(text.Value, true);
+                    if (!string.IsNullOrWhiteSpace(plain)) lines.Add(plain);
+                }
             }
             return string.Join("\n", lines).Trim();
+        }
+
+        private static void AppendOutlineSourceLines(XElement children, int depth, List<string> lines)
+        {
+            foreach (XElement oe in children.Elements(OneNs + "OE"))
+            {
+                foreach (XElement text in oe.Elements(OneNs + "T"))
+                {
+                    string plain = HtmlToPlainText(text.Value, true);
+                    if (string.IsNullOrWhiteSpace(plain)) continue;
+                    lines.Add(RestoreStructuralIndent(plain, depth));
+                }
+
+                XElement nested = oe.Element(OneNs + "OEChildren");
+                if (nested != null)
+                {
+                    AppendOutlineSourceLines(nested, depth + 1, lines);
+                }
+            }
+        }
+
+        private static string RestoreStructuralIndent(string text, int depth)
+        {
+            if (depth <= 0 || string.IsNullOrEmpty(text)) return text ?? string.Empty;
+            string indent = new string(' ', depth * 2);
+            string[] parts = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (parts[i].Length > 0 && !char.IsWhiteSpace(parts[i][0]))
+                {
+                    parts[i] = indent + parts[i];
+                }
+            }
+            return string.Join("\n", parts);
         }
 
         private static void ApplyBounds(PreviewSource source, IEnumerable<XElement> outlines)
@@ -675,7 +717,8 @@ namespace OneNoteMarkdown.OneNote
             value = TagRegex.Replace(value, string.Empty);
             value = WebUtility.HtmlDecode(value ?? string.Empty);
             value = value.Replace("\r\n", "\n").Replace('\r', '\n');
-            return value.Trim();
+            value = value.Replace('\u00a0', ' ');
+            return preserveBreaks ? value.Trim('\r', '\n') : value.Trim();
         }
     }
 }

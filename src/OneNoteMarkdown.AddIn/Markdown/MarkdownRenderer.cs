@@ -151,9 +151,10 @@ namespace OneNoteMarkdown.Markdown
                 }
 
                 Match imageMatch = StandaloneImageRegex.Match(trimmed);
-                if (imageMatch.Success)
+                string imageTarget;
+                if (imageMatch.Success && TryParseImageDestination(imageMatch.Groups[2].Value, out imageTarget))
                 {
-                    string imageTarget = ResolveImageTarget(imageMatch.Groups[2].Value.Trim(), baseDirectory);
+                    imageTarget = ResolveImageTarget(imageTarget, baseDirectory);
                     blocks.Add(MarkdownBlock.Image(imageMatch.Groups[1].Value, imageTarget));
                     continue;
                 }
@@ -167,9 +168,10 @@ namespace OneNoteMarkdown.Markdown
 
                 if (trimmed.StartsWith(">"))
                 {
-                    string quoted = trimmed.Substring(1);
-                    if (quoted.StartsWith(" ")) quoted = quoted.Substring(1);
-                    blocks.Add(MarkdownBlock.Blockquote(quoted));
+                    int quoteLevel;
+                    string quoted;
+                    ParseBlockquote(trimmed, out quoteLevel, out quoted);
+                    blocks.Add(MarkdownBlock.Blockquote(quoted, quoteLevel));
                     continue;
                 }
 
@@ -212,6 +214,54 @@ namespace OneNoteMarkdown.Markdown
             {
                 return target;
             }
+        }
+
+        private static bool TryParseImageDestination(string value, out string target)
+        {
+            target = string.Empty;
+            string input = (value ?? string.Empty).Trim();
+            if (input.Length == 0) return false;
+
+            if (input[0] == '<')
+            {
+                int closing = input.IndexOf('>');
+                if (closing <= 1) return false;
+                target = input.Substring(1, closing - 1).Trim();
+                string remainder = input.Substring(closing + 1).Trim();
+                return target.Length > 0 && IsOptionalImageTitle(remainder);
+            }
+
+            Match match = Regex.Match(
+                input,
+                "^(?<target>\\S+?)(?:\\s+(?:\"[^\"]*\"|'[^']*'|\\([^)]*\\)))?$",
+                RegexOptions.CultureInvariant);
+            if (!match.Success) return false;
+            target = match.Groups["target"].Value.Trim();
+            return target.Length > 0;
+        }
+
+        private static bool IsOptionalImageTitle(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return true;
+            if (value.Length < 2) return false;
+            return (value[0] == '"' && value[value.Length - 1] == '"')
+                || (value[0] == '\'' && value[value.Length - 1] == '\'')
+                || (value[0] == '(' && value[value.Length - 1] == ')');
+        }
+
+        private static void ParseBlockquote(string trimmed, out int level, out string text)
+        {
+            level = 0;
+            int index = 0;
+            while (index < trimmed.Length && trimmed[index] == '>')
+            {
+                level++;
+                index++;
+                if (index < trimmed.Length && trimmed[index] == ' ') index++;
+            }
+
+            if (level < 1) level = 1;
+            text = index >= trimmed.Length ? string.Empty : trimmed.Substring(index);
         }
 
         private static bool IsClosingFence(string trimmed, char fenceChar, int minimumLength)
