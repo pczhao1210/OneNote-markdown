@@ -2,7 +2,7 @@
 
 # OneNote Markdown
 
-A Microsoft OneNote add-in for writing and rendering Markdown directly in your notes. Supports live preview, LaTeX formulas, diagram source blocks, and syntax highlighting.
+A Microsoft OneNote add-in for writing and rendering Markdown directly in your notes. Supports managed side-by-side previews, LaTeX formulas, offline Mermaid flowcharts, tables, images, links, and syntax highlighting.
 
 ![OneNote Markdown Demo](docs/demo.png)
 
@@ -10,8 +10,9 @@ A Microsoft OneNote add-in for writing and rendering Markdown directly in your n
 
 Download from the [Releases](https://github.com/oldding/OneNote-markdown/releases) page:
 
-- `OneNoteMarkdownSetup-x86.exe` — for 32-bit OneNote
-- `OneNoteMarkdownSetup-x64.exe` — for 64-bit OneNote
+- `OneNoteMarkdownSetup-1.2.1-fix-x86.exe` — for 32-bit OneNote
+- `OneNoteMarkdownSetup-1.2.1-fix-x64.exe` — for x64 OneNote
+- `OneNoteMarkdownSetup-1.2.1-fix-arm64.exe` — for native Arm64 OneNote on Windows 11; requires .NET Framework 4.8.1
 
 > The installer must match **OneNote's bitness**, not Windows'. A 64-bit Windows may still run 32-bit OneNote.
 
@@ -19,14 +20,14 @@ Download from the [Releases](https://github.com/oldding/OneNote-markdown/release
 
 | Feature | Description |
 |---------|-------------|
-| **Markdown Rendering** | Render Markdown text as formatted content: headings, lists, code blocks, tables, and more |
-| **Live Preview** | Create source and preview zones on the page; auto-refresh after edits |
-| **LaTeX Formulas** | Inline and block math formula rendering |
-| **Diagram Source Blocks** | Detect fenced code blocks (e.g. Mermaid) and display source with preserved formatting |
+| **Managed Preview** | Update full-page, selection, or current-text-box previews in place, beside or below their source |
+| **Refresh Control** | Manual refresh by default, optional debounced refresh, conflict detection, layout reset, deletion, and source-region navigation |
+| **LaTeX Formulas** | Block math rendering with bounded local caching and source-preserving error fallback |
+| **Mermaid Flowcharts** | Render common Mermaid flowcharts locally without sending note content to an online service |
 | **Code Highlighting** | Syntax highlighting for multiple languages |
-| **Import/Export** | Import `.md` files or export pages as Markdown |
+| **Import/Export** | Preserve imported Markdown, relative local images, and avoid exporting managed previews twice |
 | **Clipboard Support** | One-click copy page as Markdown |
-| **Settings Dialog** | Configure fonts, sizes, LaTeX output, code line numbers, and UI language |
+| **Settings Dialog** | Configure presets, fonts, preview title/layout, refresh delay, images, and UI language |
 
 ## Shortcuts
 
@@ -39,9 +40,10 @@ Download from the [Releases](https://github.com/oldding/OneNote-markdown/release
 ## Getting Started
 
 1. Check OneNote bitness: `File → Account → About OneNote`
-2. Install the matching version (`x86` for 32-bit OneNote, `x64` for 64-bit)
+2. Install the matching version (`x86`, `x64`, or native `arm64`) for OneNote
 3. After installation, a "Markdown" tab appears in the OneNote ribbon
-4. Write Markdown text on a page, then click "Render Page" or press `F5`
+4. Write Markdown text on a page, then click "Render Page", "Render Text Box", or "Render Selection"
+5. Re-running a command updates its linked preview instead of appending another copy
 
 For detailed usage, see [HELP.md](HELP.md). For plugin testing guide, see [PLUGIN_TEST_GUIDE.md](PLUGIN_TEST_GUIDE.md).
 
@@ -78,8 +80,9 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 
 Build output:
 
-- `src/OneNoteMarkdown.Installer/Output/OneNoteMarkdownSetup-x86.exe`
-- `src/OneNoteMarkdown.Installer/Output/OneNoteMarkdownSetup-x64.exe`
+- `src/OneNoteMarkdown.Installer/Output/OneNoteMarkdownSetup-1.2.1-fix-x86.exe`
+- `src/OneNoteMarkdown.Installer/Output/OneNoteMarkdownSetup-1.2.1-fix-x64.exe`
+- `src/OneNoteMarkdown.Installer/Output/OneNoteMarkdownSetup-1.2.1-fix-arm64.exe`
 
 GitHub Actions builds also upload both installers as artifacts.
 

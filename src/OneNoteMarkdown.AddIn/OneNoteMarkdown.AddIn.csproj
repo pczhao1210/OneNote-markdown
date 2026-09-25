@@ -76,19 +76,25 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Features\ApplyPreviewDefaultsCommand.cs" />
     <Compile Include="AddIn\Connect.cs" />
     <Compile Include="AddIn\RibbonHandler.cs" />
     <Compile Include="Features\EnterHook.cs" />
+    <Compile Include="Features\DeletePreviewCommand.cs" />
     <Compile Include="Features\ExportMarkdownCommand.cs" />
     <Compile Include="Features\ExportMarkdownToClipboardCommand.cs" />
     <Compile Include="Features\HotkeyRouter.cs" />
     <Compile Include="Features\ImportMarkdownCommand.cs" />
+    <Compile Include="Features\JumpToPreviewSourceCommand.cs" />
     <Compile Include="Features\LivePreviewService.cs" />
     <Compile Include="Features\MarkdownExportService.cs" />
     <Compile Include="Features\OpenHelpCommand.cs" />
     <Compile Include="Features\OpenThemeSettingsCommand.cs" />
+    <Compile Include="Features\PreviewManager.cs" />
     <Compile Include="Features\RefreshPreviewCommand.cs" />
+    <Compile Include="Features\ResetPreviewLayoutCommand.cs" />
     <Compile Include="Features\RenderCurrentLineCommand.cs" />
+    <Compile Include="Features\RenderCurrentOutlineMarkdownCommand.cs" />
     <Compile Include="Features\RenderPageMarkdownCommand.cs" />
     <Compile Include="Features\RenderSelectionMarkdownCommand.cs" />
     <Compile Include="Features\ToggleLineSourceCommand.cs" />
@@ -102,6 +108,7 @@
     <Compile Include="OneNote\Interop\IOneNoteApplication.cs" />
     <Compile Include="OneNote\Models\OeInfo.cs" />
     <Compile Include="OneNote\Models\PageContent.cs" />
+    <Compile Include="OneNote\Models\PreviewSource.cs" />
     <Compile Include="OneNote\OneNoteProvider.cs" />
     <Compile Include="OneNote\PageParser.cs" />
     <Compile Include="OneNote\PageWriter.cs" />

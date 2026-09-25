@@ -9,6 +9,7 @@ namespace OneNoteMarkdown.OneNote.Models
         public string Title { get; set; }
         public DateTime DateCreated { get; set; }
         public DateTime DateModified { get; set; }
+        public int UnsupportedObjectCount { get; set; }
         public List<OutlineContent> Outlines { get; set; } = new List<OutlineContent>();
     }
 
@@ -16,6 +17,10 @@ namespace OneNoteMarkdown.OneNote.Models
     {
         public string OutlineId { get; set; }
         public List<TextBlock> TextBlocks { get; set; } = new List<TextBlock>();
+        public bool IsManagedPreview { get; set; }
+        public bool IsManagedPreviewModified { get; set; }
+        public string ManagedRole { get; set; }
+        public string ManagedSource { get; set; }
     }
 
     public class TextBlock

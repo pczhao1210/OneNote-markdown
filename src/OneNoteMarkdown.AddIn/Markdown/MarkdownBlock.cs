@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace OneNoteMarkdown.Markdown
 {
     internal enum MarkdownBlockKind
@@ -11,7 +13,9 @@ namespace OneNoteMarkdown.Markdown
         LatexBlock = 6,
         Toc = 7,
         Blockquote = 8,
-        HorizontalRule = 9
+        HorizontalRule = 9,
+        Table = 10,
+        Image = 11
     }
 
     internal enum MarkdownListKind
@@ -47,6 +51,10 @@ namespace OneNoteMarkdown.Markdown
         public bool IsTaskChecked { get; set; }
 
         public string CodeLanguage { get; set; }
+
+        public List<List<string>> TableRows { get; set; }
+
+        public string Target { get; set; }
 
         public static MarkdownBlock Paragraph(string text)
         {
@@ -128,6 +136,25 @@ namespace OneNoteMarkdown.Markdown
         public static MarkdownBlock HorizontalRule()
         {
             return new MarkdownBlock { Kind = MarkdownBlockKind.HorizontalRule, Text = string.Empty, Level = 0 };
+        }
+
+        public static MarkdownBlock Table(List<List<string>> rows)
+        {
+            return new MarkdownBlock
+            {
+                Kind = MarkdownBlockKind.Table,
+                TableRows = rows ?? new List<List<string>>()
+            };
+        }
+
+        public static MarkdownBlock Image(string alt, string target)
+        {
+            return new MarkdownBlock
+            {
+                Kind = MarkdownBlockKind.Image,
+                Text = alt ?? string.Empty,
+                Target = target ?? string.Empty
+            };
         }
     }
 }

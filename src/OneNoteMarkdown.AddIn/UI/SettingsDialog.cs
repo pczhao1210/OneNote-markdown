@@ -5,6 +5,8 @@ using System.Windows.Forms;
 using OneNoteMarkdown.Localization;
 using OneNoteMarkdown.Logging;
 using OneNoteMarkdown.Settings;
+using OneNoteMarkdown.OneNote.Models;
+using OneNoteMarkdown.OneNote;
 
 namespace OneNoteMarkdown.UI
 {
@@ -17,12 +19,21 @@ namespace OneNoteMarkdown.UI
         private TextBox _txtCodeSize;
         private CheckBox _chkLatex;
         private CheckBox _chkLineNumber;
+        private ComboBox _cboPreset;
+        private CheckBox _chkPreviewTitle;
+        private TextBox _txtPreviewTitle;
+        private ComboBox _cboPreviewPosition;
+        private TextBox _txtPreviewGap;
+        private TextBox _txtPreviewWidth;
+        private CheckBox _chkAutoRefresh;
+        private TextBox _txtAutoRefreshDelay;
+        private CheckBox _chkRemoteImages;
         private ComboBox _cboLanguage;
 
         public SettingsDialog()
         {
             Text = Loc.S("Dialog.Settings.Title");
-            ClientSize = new Size(520, 530);
+            ClientSize = new Size(560, 720);
             MinimumSize = new Size(460, 490);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.Sizable;
@@ -113,6 +124,30 @@ namespace OneNoteMarkdown.UI
             _txtParagraphSize = AddField(content, Loc.S("Settings.ParagraphSize"), ref y, labelFont, inputFont);
             _txtCodeSize = AddField(content, Loc.S("Settings.CodeSize"), ref y, labelFont, inputFont);
 
+            Label lblPreset = new Label
+            {
+                Text = Loc.S("Settings.ThemePreset"),
+                Location = new Point(24, y),
+                AutoSize = true,
+                Font = labelFont,
+                ForeColor = Color.FromArgb(51, 51, 51)
+            };
+            content.Controls.Add(lblPreset);
+            y += 22;
+            _cboPreset = new ComboBox
+            {
+                Location = new Point(24, y),
+                Size = new Size(240, 26),
+                Font = inputFont,
+                DropDownStyle = ComboBoxStyle.DropDownList
+            };
+            _cboPreset.Items.Add(Loc.S("Settings.ThemePreset.Technical"));
+            _cboPreset.Items.Add(Loc.S("Settings.ThemePreset.Study"));
+            _cboPreset.Items.Add(Loc.S("Settings.ThemePreset.Minimal"));
+            _cboPreset.SelectionChangeCommitted += delegate { ApplySelectedPreset(); };
+            content.Controls.Add(_cboPreset);
+            y += 34;
+
             y += 8;
             Label secRender = new Label { Text = Loc.S("Settings.Section.Render"), Location = new Point(24, y), AutoSize = true, Font = headingFont, ForeColor = purple };
             content.Controls.Add(secRender);
@@ -137,6 +172,67 @@ namespace OneNoteMarkdown.UI
             };
             content.Controls.Add(_chkLineNumber);
             y += 36;
+
+            _chkRemoteImages = new CheckBox
+            {
+                Text = Loc.S("Settings.AllowRemoteImages"),
+                Location = new Point(24, y),
+                AutoSize = true,
+                Font = inputFont
+            };
+            content.Controls.Add(_chkRemoteImages);
+            y += 36;
+
+            Label secPreview = new Label { Text = Loc.S("Settings.Section.Preview"), Location = new Point(24, y), AutoSize = true, Font = headingFont, ForeColor = purple };
+            content.Controls.Add(secPreview);
+            y += 32;
+
+            _chkPreviewTitle = new CheckBox
+            {
+                Text = Loc.S("Settings.PreviewShowTitle"),
+                Location = new Point(24, y),
+                AutoSize = true,
+                Font = inputFont
+            };
+            content.Controls.Add(_chkPreviewTitle);
+            y += 30;
+            _txtPreviewTitle = AddField(content, Loc.S("Settings.PreviewTitle"), ref y, labelFont, inputFont);
+
+            Label lblPosition = new Label
+            {
+                Text = Loc.S("Settings.PreviewPosition"),
+                Location = new Point(24, y),
+                AutoSize = true,
+                Font = labelFont,
+                ForeColor = Color.FromArgb(51, 51, 51)
+            };
+            content.Controls.Add(lblPosition);
+            y += 22;
+            _cboPreviewPosition = new ComboBox
+            {
+                Location = new Point(24, y),
+                Size = new Size(240, 26),
+                Font = inputFont,
+                DropDownStyle = ComboBoxStyle.DropDownList
+            };
+            _cboPreviewPosition.Items.Add(Loc.S("Settings.PreviewPosition.Right"));
+            _cboPreviewPosition.Items.Add(Loc.S("Settings.PreviewPosition.Below"));
+            content.Controls.Add(_cboPreviewPosition);
+            y += 34;
+
+            _txtPreviewGap = AddField(content, Loc.S("Settings.PreviewGap"), ref y, labelFont, inputFont);
+            _txtPreviewWidth = AddField(content, Loc.S("Settings.PreviewWidth"), ref y, labelFont, inputFont);
+
+            _chkAutoRefresh = new CheckBox
+            {
+                Text = Loc.S("Settings.AutoRefresh"),
+                Location = new Point(24, y),
+                AutoSize = true,
+                Font = inputFont
+            };
+            content.Controls.Add(_chkAutoRefresh);
+            y += 30;
+            _txtAutoRefreshDelay = AddField(content, Loc.S("Settings.AutoRefreshDelay"), ref y, labelFont, inputFont);
 
             // Section: Language
             Label secLang = new Label { Text = Loc.S("Settings.Section.Language"), Location = new Point(24, y), AutoSize = true, Font = headingFont, ForeColor = purple };
@@ -224,6 +320,17 @@ namespace OneNoteMarkdown.UI
             _txtCodeSize.Text = s.CodeFontSize.ToString(CultureInfo.InvariantCulture);
             _chkLatex.Checked = s.EnableLatexToImage;
             _chkLineNumber.Checked = s.EnableCodeLineNumber;
+            _chkRemoteImages.Checked = s.AllowRemoteImages;
+            _chkPreviewTitle.Checked = s.PreviewShowTitle;
+            _txtPreviewTitle.Text = s.PreviewTitle;
+            _cboPreviewPosition.SelectedIndex = s.PreviewPlacement == PreviewPlacement.Below ? 1 : 0;
+            _txtPreviewGap.Text = s.PreviewGap.ToString(CultureInfo.InvariantCulture);
+            _txtPreviewWidth.Text = s.PreviewWidth.ToString(CultureInfo.InvariantCulture);
+            _chkAutoRefresh.Checked = s.AutoRefreshEnabled;
+            _txtAutoRefreshDelay.Text = s.AutoRefreshDelayMilliseconds.ToString(CultureInfo.InvariantCulture);
+            if (s.ThemePreset == "study") _cboPreset.SelectedIndex = 1;
+            else if (s.ThemePreset == "minimal") _cboPreset.SelectedIndex = 2;
+            else _cboPreset.SelectedIndex = 0;
 
             // Language dropdown: 0=auto, 1=zh, 2=en
             string lang = (s.Language ?? "auto").Trim().ToLowerInvariant();
@@ -239,6 +346,9 @@ namespace OneNoteMarkdown.UI
                 string langValue = "auto";
                 if (_cboLanguage.SelectedIndex == 1) langValue = "zh";
                 else if (_cboLanguage.SelectedIndex == 2) langValue = "en";
+                string presetValue = _cboPreset.SelectedIndex == 1 ? "study"
+                    : (_cboPreset.SelectedIndex == 2 ? "minimal" : "technical");
+                string positionValue = _cboPreviewPosition.SelectedIndex == 1 ? "below" : "right";
 
                 string content =
                     "# OneNote Markdown theme settings\r\n" +
@@ -250,6 +360,16 @@ namespace OneNoteMarkdown.UI
                     "font.size.code=" + _txtCodeSize.Text.Trim() + "\r\n" +
                     "enable.latex.image=" + (_chkLatex.Checked ? "true" : "false") + "\r\n" +
                     "enable.code.lineNumber=" + (_chkLineNumber.Checked ? "true" : "false") + "\r\n" +
+                    "theme.preset=" + presetValue + "\r\n" +
+                    "preview.title.show=" + (_chkPreviewTitle.Checked ? "true" : "false") + "\r\n" +
+                    "preview.title.text=" + _txtPreviewTitle.Text.Trim() + "\r\n" +
+                    "preview.position=" + positionValue + "\r\n" +
+                    "preview.gap=" + _txtPreviewGap.Text.Trim() + "\r\n" +
+                    "preview.width=" + _txtPreviewWidth.Text.Trim() + "\r\n" +
+                    "preview.autoRefresh=" + (_chkAutoRefresh.Checked ? "true" : "false") + "\r\n" +
+                    "preview.autoRefresh.delayMs=" + _txtAutoRefreshDelay.Text.Trim() + "\r\n" +
+                    "image.allowRemote=" + (_chkRemoteImages.Checked ? "true" : "false") + "\r\n" +
+                    "diagram.timeoutMs=3000\r\n" +
                     "language=" + langValue + "\r\n";
 
                 string path = ThemeSettings.EnsureDefaultFile();
@@ -257,6 +377,7 @@ namespace OneNoteMarkdown.UI
 
                 // Apply language immediately
                 LocalizationManager.SetLanguage(langValue);
+                PageWriter.InvalidateThemeCache();
 
                 Logger.Info("Settings saved");
                 DialogResult = DialogResult.OK;
@@ -268,12 +389,35 @@ namespace OneNoteMarkdown.UI
                     Msg.Show(Loc.S("Settings.RestartHint"), Loc.S("Common.AppTitle"),
                         MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
+
             }
             catch (Exception ex)
             {
                 Logger.Error("Save settings failed", ex);
                 Msg.Show(Loc.S("Settings.SaveFailed", ex.Message), Loc.S("Common.AppTitle"),
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void ApplySelectedPreset()
+        {
+            if (_cboPreset.SelectedIndex == 1)
+            {
+                _txtFontFamily.Text = "Calibri";
+                _txtParagraphSize.Text = "12";
+                _txtCodeSize.Text = "10";
+            }
+            else if (_cboPreset.SelectedIndex == 2)
+            {
+                _txtFontFamily.Text = "Segoe UI";
+                _txtParagraphSize.Text = "10.5";
+                _txtCodeSize.Text = "9.5";
+            }
+            else
+            {
+                _txtFontFamily.Text = "Calibri";
+                _txtParagraphSize.Text = "11";
+                _txtCodeSize.Text = "10";
             }
         }
     }

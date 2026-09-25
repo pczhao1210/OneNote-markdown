@@ -6,6 +6,7 @@ using OneNoteMarkdown.Localization;
 using OneNoteMarkdown.Logging;
 using OneNoteMarkdown.Markdown;
 using OneNoteMarkdown.OneNote;
+using OneNoteMarkdown.OneNote.Models;
 using OneNoteMarkdown.UI;
 
 namespace OneNoteMarkdown.Features
@@ -50,15 +51,29 @@ namespace OneNoteMarkdown.Features
                         return;
                     }
 
-                    var blocks = MarkdownRenderer.RenderToBlocks(markdown);
-                    if (blocks == null || blocks.Count == 0)
+                    PreviewSource source = new PreviewSource
+                    {
+                        PageId = pageId,
+                        SourceKey = "import:" + Path.GetFullPath(dialog.FileName).ToUpperInvariant(),
+                        Markdown = markdown,
+                        BaseDirectory = fileInfo.DirectoryName
+                    };
+                    PreviewSource pageArea = provider.GetCurrentPagePreviewSource();
+                    if (pageArea != null && pageArea.HasBounds)
+                    {
+                        source.HasBounds = true;
+                        source.Left = pageArea.Left;
+                        source.Top = pageArea.Top;
+                        source.Right = pageArea.Right;
+                        source.Bottom = pageArea.Bottom;
+                    }
+                    PreviewUpdateStatus status = PreviewManager.Render(source, "ImportPreview", false, true);
+                    if (status == PreviewUpdateStatus.Unchanged && string.IsNullOrWhiteSpace(markdown))
                     {
                         Msg.Show(Loc.S("Msg.ParseEmpty"), Loc.S("Common.AppTitle"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         return;
                     }
 
-                    PageWriter writer = new PageWriter();
-                    writer.AppendBlocks(pageId, blocks, "Markdown Import");
                     Logger.Info("ImportMarkdownCommand completed");
                     Msg.Show(Loc.S("Msg.ImportSuccess"), Loc.S("Common.AppTitle"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }

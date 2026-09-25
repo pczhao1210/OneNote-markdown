@@ -26,6 +26,11 @@ namespace OneNoteMarkdown.Features
 
         public static void Execute()
         {
+            Execute(null);
+        }
+
+        internal static void Execute(OeInfo expected)
+        {
             if (System.Threading.Interlocked.CompareExchange(ref _running, 1, 0) != 0)
             {
                 return; // a render is already in progress
@@ -33,7 +38,13 @@ namespace OneNoteMarkdown.Features
             try
             {
                 OneNoteProvider provider = new OneNoteProvider();
-                OeInfo oe = provider.GetCurrentOeInfo();
+                if (expected != null &&
+                    !string.Equals(provider.GetCurrentPageId(), expected.PageId, StringComparison.Ordinal))
+                {
+                    Logger.Info("RenderCurrentLine: cancelled after page change");
+                    return;
+                }
+                OeInfo oe = expected ?? provider.GetCurrentOeInfo();
                 if (oe == null)
                 {
                     Logger.Info("RenderCurrentLine: no active OE found");
@@ -53,7 +64,7 @@ namespace OneNoteMarkdown.Features
                     return;
                 }
 
-                Logger.Info("RenderCurrentLine: src=" + src);
+                Logger.Info("RenderCurrentLine: rendering source length=" + src.Length);
 
                 List<MarkdownBlock> blocks = MarkdownRenderer.RenderToBlocks(src);
                 if (blocks == null || blocks.Count == 0)
