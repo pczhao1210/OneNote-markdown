@@ -7,6 +7,7 @@ using OneNoteMarkdown.Logging;
 using OneNoteMarkdown.Markdown;
 using OneNoteMarkdown.OneNote;
 using OneNoteMarkdown.OneNote.Models;
+using OneNoteMarkdown.Settings;
 using OneNoteMarkdown.UI;
 
 namespace OneNoteMarkdown.Features
@@ -60,18 +61,41 @@ namespace OneNoteMarkdown.Features
                         BaseDirectory = fileInfo.DirectoryName
                     };
 
-                    PageWriter writer = new PageWriter();
-                    writer.UpsertImportedMarkdownSource(source);
-                    PreviewSource pageSource = provider.GetCurrentPagePreviewSource();
-                    if (pageSource == null || string.IsNullOrWhiteSpace(pageSource.Markdown))
+                    ThemeSettings settings = ThemeSettings.Load();
+                    if (settings.ImportKeepSource)
                     {
-                        Msg.Show(Loc.S("Msg.ParseEmpty"), Loc.S("Common.AppTitle"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                        return;
+                        PageWriter writer = new PageWriter();
+                        writer.UpsertImportedMarkdownSource(source);
+                        PreviewSource pageSource = provider.GetCurrentPagePreviewSource();
+                        if (pageSource == null || string.IsNullOrWhiteSpace(pageSource.Markdown))
+                        {
+                            Msg.Show(Loc.S("Msg.ParseEmpty"), Loc.S("Common.AppTitle"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            return;
+                        }
+                        PreviewManager.Render(pageSource, "PagePreview", false, true);
                     }
-                    PreviewManager.Render(pageSource, "PagePreview", false, true);
+                    else
+                    {
+                        PreviewSource pageArea = provider.GetCurrentPagePreviewSource();
+                        if (pageArea != null && pageArea.HasBounds)
+                        {
+                            source.HasBounds = true;
+                            source.Left = pageArea.Left;
+                            source.Top = pageArea.Top;
+                            source.Right = pageArea.Right;
+                            source.Bottom = pageArea.Bottom;
+                        }
+                        PreviewManager.Render(source, "ImportPreview", false, true);
+                    }
 
                     Logger.Info("ImportMarkdownCommand completed");
-                    Msg.Show(Loc.S("Msg.ImportSuccess"), Loc.S("Common.AppTitle"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    Msg.Show(
+                        Loc.S(settings.ImportKeepSource
+                            ? "Msg.ImportSuccessWithSource"
+                            : "Msg.ImportSuccessPreviewOnly"),
+                        Loc.S("Common.AppTitle"),
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
                 }
             }
             catch (Exception ex)
