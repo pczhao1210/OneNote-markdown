@@ -59,21 +59,16 @@ namespace OneNoteMarkdown.Features
                         Markdown = markdown,
                         BaseDirectory = fileInfo.DirectoryName
                     };
-                    PreviewSource pageArea = provider.GetCurrentPagePreviewSource();
-                    if (pageArea != null && pageArea.HasBounds)
-                    {
-                        source.HasBounds = true;
-                        source.Left = pageArea.Left;
-                        source.Top = pageArea.Top;
-                        source.Right = pageArea.Right;
-                        source.Bottom = pageArea.Bottom;
-                    }
-                    PreviewUpdateStatus status = PreviewManager.Render(source, "ImportPreview", false, true);
-                    if (status == PreviewUpdateStatus.Unchanged && string.IsNullOrWhiteSpace(markdown))
+
+                    PageWriter writer = new PageWriter();
+                    writer.UpsertImportedMarkdownSource(source);
+                    PreviewSource pageSource = provider.GetCurrentPagePreviewSource();
+                    if (pageSource == null || string.IsNullOrWhiteSpace(pageSource.Markdown))
                     {
                         Msg.Show(Loc.S("Msg.ParseEmpty"), Loc.S("Common.AppTitle"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         return;
                     }
+                    PreviewManager.Render(pageSource, "PagePreview", false, true);
 
                     Logger.Info("ImportMarkdownCommand completed");
                     Msg.Show(Loc.S("Msg.ImportSuccess"), Loc.S("Common.AppTitle"), MessageBoxButtons.OK, MessageBoxIcon.Information);

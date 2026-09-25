@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Net;
 using System.Text;
 using System.Xml.Linq;
 using OneNoteMarkdown.Markdown;
@@ -26,9 +27,13 @@ namespace OneNoteMarkdown.Tests
             Run("Markdown parser boundaries", TestMarkdownParserBoundaries);
             Run("Table and image parsing", TestTableAndImageParsing);
             Run("Import path normalization", TestImportPathNormalization);
+            Run("Imported source metadata", TestImportedSourceMetadata);
             Run("Nested source structure", TestNestedSourceStructure);
             Run("Inline escaping", TestInlineEscaping);
             Run("Inline LaTeX rendering", TestInlineLatexRendering);
+            Run("Remote image request", TestRemoteImageRequest);
+            Run("DPI-aware settings", TestDpiAwareSettings);
+            Run("Managed preview reuse", TestManagedPreviewReuse);
             Run("Hidden UI anchor", TestHiddenUiAnchor);
             Run("Managed preview export", TestManagedPreviewExport);
             Run("Offline Mermaid rendering", TestOfflineMermaidRendering);
@@ -209,6 +214,47 @@ namespace OneNoteMarkdown.Tests
                 "A quoted file-dialog path was not normalized.");
         }
 
+        private static void TestImportedSourceMetadata()
+        {
+            Type sourceType = typeof(PageWriter).Assembly.GetType(
+                "OneNoteMarkdown.OneNote.Models.PreviewSource",
+                true);
+            object source = Activator.CreateInstance(sourceType, true);
+            sourceType.GetProperty("Markdown").SetValue(source, "# Title\n\n  indented &lt;");
+            sourceType.GetProperty("BaseDirectory").SetValue(source, @"C:\notes");
+
+            MethodInfo createMethod = typeof(PageWriter).GetMethod(
+                "CreateImportedSourceOutline",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert(createMethod != null, "Imported source outline builder was not found.");
+            string sourceKey = Convert.ToBase64String(Encoding.UTF8.GetBytes(@"import:C:\NOTES\TEST.MD"));
+            XElement outline = (XElement)createMethod.Invoke(
+                null,
+                new object[] { source, sourceKey, 36d, 200d, 520d, 100d, 0 });
+
+            XNamespace one = OneNs;
+            XElement sourceOe = outline.Descendants(one + "OE").Single();
+            string storedKey = sourceOe.Elements(one + "Meta")
+                .Single(meta => (string)meta.Attribute("name") == "md-import-source-key")
+                .Attribute("content").Value;
+            string storedBase = sourceOe.Elements(one + "Meta")
+                .Single(meta => (string)meta.Attribute("name") == "md-import-base-directory")
+                .Attribute("content").Value;
+            Assert(storedKey == sourceKey, "Imported source identity was not persisted.");
+            Assert(Encoding.UTF8.GetString(Convert.FromBase64String(storedBase)) == @"C:\notes",
+                "Imported source base directory was not persisted.");
+            string html = sourceOe.Element(one + "T").Value;
+            Assert(html.Contains("<br><br>") && html.Contains("&nbsp;&nbsp;indented&nbsp;&amp;lt;"),
+                "Imported Markdown was not preserved as editable raw text.");
+
+            MethodInfo readBaseMethod = typeof(OneNoteProvider).GetMethod(
+                "ReadSourceBaseDirectory",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert(readBaseMethod != null, "Imported base-directory reader was not found.");
+            Assert((string)readBaseMethod.Invoke(null, new object[] { outline }) == @"C:\notes",
+                "Imported base directory could not be restored for relative images.");
+        }
+
         private static void TestNestedSourceStructure()
         {
             XDocument document = XDocument.Parse(
@@ -256,6 +302,86 @@ namespace OneNoteMarkdown.Tests
             Assert(png != null && png.Length > 24 && png[0] == 0x89 && png[1] == 0x50,
                 "Inline LaTeX renderer did not return a PNG.");
             Assert(width > 100 && height > 10, "Inline LaTeX image dimensions were invalid.");
+        }
+
+        private static void TestRemoteImageRequest()
+        {
+            MethodInfo method = typeof(PageWriter).GetMethod(
+                "CreateRemoteImageRequest",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert(method != null, "Remote image request factory was not found.");
+            HttpWebRequest request = (HttpWebRequest)method.Invoke(
+                null,
+                new object[] { new Uri("https://example.com/image.png") });
+            Assert(request.AllowAutoRedirect && request.MaximumAutomaticRedirections == 5,
+                "Remote image redirects were not enabled.");
+            Assert(request.UserAgent.StartsWith("OneNoteMarkdown/", StringComparison.Ordinal) &&
+                request.Accept == "image/*",
+                "Remote image request headers were not configured.");
+            SecurityProtocolType protocols = ServicePointManager.SecurityProtocol;
+            Assert((request.AutomaticDecompression & DecompressionMethods.GZip) != 0 &&
+                (protocols == SecurityProtocolType.SystemDefault ||
+                 (protocols & SecurityProtocolType.Tls12) != 0),
+                "Remote image TLS or compression support was not configured.");
+        }
+
+        private static void TestDpiAwareSettings()
+        {
+            Type settingsType = typeof(PageWriter).Assembly.GetType(
+                "OneNoteMarkdown.UI.SettingsDialog",
+                true);
+            using (System.Windows.Forms.Form dialog =
+                (System.Windows.Forms.Form)Activator.CreateInstance(settingsType, true))
+            {
+                Assert(dialog.AutoScaleMode == System.Windows.Forms.AutoScaleMode.Dpi,
+                    "Settings dialog does not use DPI-based scaling.");
+                Assert(dialog.AutoScaleDimensions.Width >= 96f &&
+                    dialog.AutoScaleDimensions.Height >= 96f,
+                    "Settings dialog reported invalid DPI scaling dimensions.");
+            }
+        }
+
+        private static void TestManagedPreviewReuse()
+        {
+            XNamespace one = OneNs;
+            string oldKey = Convert.ToBase64String(Encoding.UTF8.GetBytes("page:old"));
+            string currentKey = Convert.ToBase64String(Encoding.UTF8.GetBytes("page:current"));
+            XElement page = XElement.Parse(
+                "<one:Page xmlns:one=\"" + OneNs + "\">" +
+                "<one:Outline><one:OEChildren>" +
+                "<one:OE><one:Meta name=\"md-preview-role\" content=\"PagePreview\"/>" +
+                "<one:Meta name=\"md-preview-source-key\" content=\"" + oldKey + "\"/>" +
+                "<one:T><![CDATA[existing]]></one:T></one:OE>" +
+                "</one:OEChildren></one:Outline></one:Page>");
+            MethodInfo findMethod = typeof(PageWriter).GetMethod(
+                "FindManagedOutline",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert(findMethod != null, "Managed preview lookup was not found.");
+            XElement reused = (XElement)findMethod.Invoke(
+                null,
+                new object[] { page, "PagePreview", currentKey });
+            Assert(reused != null,
+                "A page preview with a stale source key was not reused.");
+
+            XElement outline = new XElement(one + "Outline",
+                new XElement(one + "OEChildren",
+                    new XElement(one + "OE", new XElement(one + "T", "first")),
+                    new XElement(one + "OE", new XElement(one + "T", "second"))));
+            MethodInfo markMethod = typeof(PageWriter).GetMethod(
+                "MarkManagedPreview",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert(markMethod != null, "Managed preview marker was not found.");
+            markMethod.Invoke(
+                null,
+                new object[] { outline, "preview-id", "PagePreview", currentKey, "source-hash", "# source", @"C:\notes", false });
+            Assert(outline.Descendants(one + "OE").All(oe =>
+                oe.Elements(one + "Meta").Any(meta =>
+                    (string)meta.Attribute("name") == "md-preview-source-key")),
+                "Managed preview identity was not replicated across all preview paragraphs.");
+            XElement baseMeta = outline.Descendants(one + "Meta").Single(meta =>
+                (string)meta.Attribute("name") == "md-preview-base-directory");
+            Assert(Encoding.UTF8.GetString(Convert.FromBase64String((string)baseMeta.Attribute("content"))) == @"C:\notes",
+                "Managed preview did not retain the relative-image base directory.");
         }
 
         private static void TestHiddenUiAnchor()

@@ -122,7 +122,7 @@ namespace OneNoteMarkdown.Localization
             {"Msg.FileTooLarge", "文件过大（超过 10 MB），请选择较小的文件。"},
             {"Msg.FileEmpty", "所选 Markdown 文件为空。"},
             {"Msg.ParseEmpty", "Markdown 解析后为空。"},
-            {"Msg.ImportSuccess", "已导入并渲染 Markdown 到当前页面。"},
+            {"Msg.ImportSuccess", "已在左侧导入 Markdown 源码，并在右侧生成预览。"},
             {"Msg.ImportFailed", "导入 Markdown 失败：{0}"},
             {"Msg.PageContentEmpty", "当前页面为空。"},
             {"Msg.RenderPageEmpty", "整页内容无法渲染。"},

@@ -21,6 +21,8 @@ namespace OneNoteMarkdown.UI
 
         private void InitializeComponents()
         {
+            AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleDimensions = new SizeF(96f, 96f);
             Text = Loc.S("Dialog.Help.Title");
             Size = new Size(900, 640);
             MinimumSize = new Size(700, 480);

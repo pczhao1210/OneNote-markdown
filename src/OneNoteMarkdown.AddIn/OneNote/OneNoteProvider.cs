@@ -135,12 +135,19 @@ namespace OneNoteMarkdown.OneNote
             catch { return null; }
 
             List<string> texts = new List<string>();
+            List<string> baseDirectories = new List<string>();
             List<XElement> outlines = doc.Root == null
                 ? new List<XElement>()
                 : doc.Root.Elements(OneNs + "Outline").ToList();
             for (int oi = 0; oi < outlines.Count; oi++)
             {
                 XElement outline = outlines[oi];
+                string baseDirectory = ReadSourceBaseDirectory(outline);
+                if (!string.IsNullOrWhiteSpace(baseDirectory) &&
+                    !baseDirectories.Contains(baseDirectory, StringComparer.OrdinalIgnoreCase))
+                {
+                    baseDirectories.Add(baseDirectory);
+                }
                 if (IsManagedOutline(outline)) continue;
                 string text = ExtractOutlineText(outline);
                 if (!string.IsNullOrWhiteSpace(text)) texts.Add(text);
@@ -152,7 +159,8 @@ namespace OneNoteMarkdown.OneNote
             {
                 PageId = pageId,
                 SourceKey = "page:" + pageId,
-                Markdown = markdown
+                Markdown = markdown,
+                BaseDirectory = baseDirectories.Count == 1 ? baseDirectories[0] : null
             };
             ApplyBounds(result, outlines.Where(delegate(XElement outline) { return !IsManagedOutline(outline); }));
             return result;
@@ -281,6 +289,27 @@ namespace OneNoteMarkdown.OneNote
                 return string.Equals(name, "md-preview-id", StringComparison.Ordinal)
                     || string.Equals(name, "md-preview-role", StringComparison.Ordinal);
             });
+        }
+
+        private static string ReadSourceBaseDirectory(XElement outline)
+        {
+            if (outline == null) return string.Empty;
+            XElement meta = outline.Descendants(OneNs + "Meta").FirstOrDefault(delegate(XElement candidate)
+            {
+                string name = (string)candidate.Attribute("name");
+                return string.Equals(name, "md-import-base-directory", StringComparison.Ordinal)
+                    || string.Equals(name, "md-preview-base-directory", StringComparison.Ordinal);
+            });
+            string encoded = meta == null ? null : (string)meta.Attribute("content");
+            if (string.IsNullOrWhiteSpace(encoded)) return string.Empty;
+            try
+            {
+                return Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
+            }
+            catch
+            {
+                return string.Empty;
+            }
         }
 
         private static string ResolveManagedHeading(string role)
