@@ -17,7 +17,8 @@ namespace OneNoteMarkdown.Features
             string role,
             bool forceLayout,
             bool interactive,
-            bool applyTitleDefaults = false)
+            bool applyTitleDefaults = false,
+            bool allowCreateNew = false)
         {
             if (source == null || string.IsNullOrWhiteSpace(source.Markdown))
             {
@@ -41,7 +42,8 @@ namespace OneNoteMarkdown.Features
                 Width = settings.PreviewWidth,
                 ForceLayout = forceLayout,
                 ApplyTitleDefaults = applyTitleDefaults,
-                OverwriteUserChanges = false
+                OverwriteUserChanges = false,
+                CreateNewPreview = allowCreateNew && settings.PreviewCreateNewOnRefresh
             };
 
             PageWriter writer = new PageWriter();
@@ -65,11 +67,11 @@ namespace OneNoteMarkdown.Features
             return writer.UpsertManagedPreview(source, blocks, options);
         }
 
-        internal static PreviewUpdateStatus RefreshCurrentPage(bool interactive)
+        internal static PreviewUpdateStatus RefreshCurrentPage(bool interactive, bool allowCreateNew = false)
         {
             OneNoteProvider provider = new OneNoteProvider();
             PreviewSource source = provider.GetCurrentPagePreviewSource();
-            return Render(source, "PagePreview", false, interactive);
+            return Render(source, "PagePreview", false, interactive, false, allowCreateNew);
         }
     }
 }

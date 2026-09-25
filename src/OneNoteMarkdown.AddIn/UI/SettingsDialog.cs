@@ -29,6 +29,7 @@ namespace OneNoteMarkdown.UI
         private TextBox _txtPreviewWidth;
         private CheckBox _chkAutoRefresh;
         private TextBox _txtAutoRefreshDelay;
+        private CheckBox _chkCreateNewOnRefresh;
         private CheckBox _chkRemoteImages;
         private CheckBox _chkImportKeepSource;
         private ComboBox _cboLanguage;
@@ -251,6 +252,16 @@ namespace OneNoteMarkdown.UI
             _txtPreviewGap = AddField(content, Loc.S("Settings.PreviewGap"), ref y, labelFont, inputFont);
             _txtPreviewWidth = AddField(content, Loc.S("Settings.PreviewWidth"), ref y, labelFont, inputFont);
 
+            _chkCreateNewOnRefresh = new CheckBox
+            {
+                Text = Loc.S("Settings.CreateNewOnRefresh"),
+                Location = new Point(24, y),
+                AutoSize = true,
+                Font = inputFont
+            };
+            content.Controls.Add(_chkCreateNewOnRefresh);
+            y += 30;
+
             _chkAutoRefresh = new CheckBox
             {
                 Text = Loc.S("Settings.AutoRefresh"),
@@ -389,6 +400,7 @@ namespace OneNoteMarkdown.UI
             _cboPreviewPosition.SelectedIndex = s.PreviewPlacement == PreviewPlacement.Below ? 1 : 0;
             _txtPreviewGap.Text = s.PreviewGap.ToString(CultureInfo.InvariantCulture);
             _txtPreviewWidth.Text = s.PreviewWidth.ToString(CultureInfo.InvariantCulture);
+            _chkCreateNewOnRefresh.Checked = s.PreviewCreateNewOnRefresh;
             _chkAutoRefresh.Checked = s.AutoRefreshEnabled;
             _txtAutoRefreshDelay.Text = s.AutoRefreshDelayMilliseconds.ToString(CultureInfo.InvariantCulture);
             if (s.ThemePreset == "study") _cboPreset.SelectedIndex = 1;
@@ -431,6 +443,7 @@ namespace OneNoteMarkdown.UI
                     "preview.position=" + positionValue + "\r\n" +
                     "preview.gap=" + _txtPreviewGap.Text.Trim() + "\r\n" +
                     "preview.width=" + _txtPreviewWidth.Text.Trim() + "\r\n" +
+                    "preview.createNewOnRefresh=" + (_chkCreateNewOnRefresh.Checked ? "true" : "false") + "\r\n" +
                     "preview.autoRefresh=" + (_chkAutoRefresh.Checked ? "true" : "false") + "\r\n" +
                     "preview.autoRefresh.delayMs=" + _txtAutoRefreshDelay.Text.Trim() + "\r\n" +
                     "image.allowRemote=" + (_chkRemoteImages.Checked ? "true" : "false") + "\r\n" +

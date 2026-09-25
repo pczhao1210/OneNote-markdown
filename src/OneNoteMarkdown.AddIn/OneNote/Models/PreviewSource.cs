@@ -30,6 +30,7 @@ namespace OneNoteMarkdown.OneNote.Models
         public bool ForceLayout { get; set; }
         public bool ApplyTitleDefaults { get; set; }
         public bool OverwriteUserChanges { get; set; }
+        public bool CreateNewPreview { get; set; }
     }
 
     internal enum PreviewUpdateStatus

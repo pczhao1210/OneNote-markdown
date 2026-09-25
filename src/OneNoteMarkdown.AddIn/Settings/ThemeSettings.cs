@@ -39,6 +39,7 @@ namespace OneNoteMarkdown.Settings
         public double PreviewWidth { get; private set; }
         public bool AutoRefreshEnabled { get; private set; }
         public int AutoRefreshDelayMilliseconds { get; private set; }
+        public bool PreviewCreateNewOnRefresh { get; private set; }
         public bool AllowRemoteImages { get; private set; }
         public bool ImportKeepSource { get; private set; }
         public int DiagramTimeoutMilliseconds { get; private set; }
@@ -88,6 +89,7 @@ namespace OneNoteMarkdown.Settings
             PreviewWidth = 520.0;
             AutoRefreshEnabled = false;
             AutoRefreshDelayMilliseconds = 700;
+            PreviewCreateNewOnRefresh = false;
             AllowRemoteImages = false;
             ImportKeepSource = false;
             DiagramTimeoutMilliseconds = 3000;
@@ -149,6 +151,10 @@ namespace OneNoteMarkdown.Settings
             {
                 s.AutoRefreshDelayMilliseconds = ParseInt(value, s.AutoRefreshDelayMilliseconds, 250, 10000);
             }
+            if (kv.TryGetValue("preview.createNewOnRefresh", out value))
+            {
+                s.PreviewCreateNewOnRefresh = ParseBool(value, s.PreviewCreateNewOnRefresh);
+            }
             if (kv.TryGetValue("image.allowRemote", out value)) s.AllowRemoteImages = ParseBool(value, s.AllowRemoteImages);
             if (kv.TryGetValue("import.keepSource", out value)) s.ImportKeepSource = ParseBool(value, s.ImportKeepSource);
             if (kv.TryGetValue("diagram.timeoutMs", out value))
@@ -186,6 +192,7 @@ namespace OneNoteMarkdown.Settings
                         "preview.width=520\r\n" +
                         "preview.autoRefresh=false\r\n" +
                         "preview.autoRefresh.delayMs=700\r\n" +
+                        "preview.createNewOnRefresh=false\r\n" +
                         "image.allowRemote=false\r\n" +
                         "import.keepSource=false\r\n" +
                         "diagram.timeoutMs=3000\r\n" +

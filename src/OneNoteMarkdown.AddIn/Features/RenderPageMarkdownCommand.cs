@@ -28,7 +28,13 @@ namespace OneNoteMarkdown.Features
                     return;
                 }
 
-                PreviewUpdateStatus status = PreviewManager.Render(source, "PagePreview", false, true);
+                PreviewUpdateStatus status = PreviewManager.Render(
+                    source,
+                    "PagePreview",
+                    false,
+                    true,
+                    false,
+                    true);
                 if (status == PreviewUpdateStatus.Unchanged && string.IsNullOrWhiteSpace(source.Markdown))
                 {
                     Msg.Show(Loc.S("Msg.RenderPageEmpty"), Loc.S("Common.AppTitle"), MessageBoxButtons.OK, MessageBoxIcon.Warning);

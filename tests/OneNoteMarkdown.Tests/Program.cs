@@ -236,7 +236,10 @@ namespace OneNoteMarkdown.Tests
                 new object[] { source, sourceKey, 36d, 200d, 520d, 100d, 0 });
 
             XNamespace one = OneNs;
-            XElement sourceOe = outline.Descendants(one + "OE").Single();
+            XElement[] sourceOes = outline.Descendants(one + "OE").ToArray();
+            Assert(sourceOes.Length == 3,
+                "Imported Markdown must use one editable OneNote paragraph per source line.");
+            XElement sourceOe = sourceOes[0];
             string storedKey = sourceOe.Elements(one + "Meta")
                 .Single(meta => (string)meta.Attribute("name") == "md-import-source-key")
                 .Attribute("content").Value;
@@ -246,9 +249,18 @@ namespace OneNoteMarkdown.Tests
             Assert(storedKey == sourceKey, "Imported source identity was not persisted.");
             Assert(Encoding.UTF8.GetString(Convert.FromBase64String(storedBase)) == @"C:\notes",
                 "Imported source base directory was not persisted.");
-            string html = sourceOe.Element(one + "T").Value;
-            Assert(html.Contains("<br><br>") && html.Contains("&nbsp;&nbsp;indented&nbsp;&amp;lt;"),
-                "Imported Markdown was not preserved as editable raw text.");
+            Assert(sourceOes[0].Element(one + "T").Value == "#&nbsp;Title" &&
+                sourceOes[1].Element(one + "T").Value == "&nbsp;" &&
+                sourceOes[2].Element(one + "T").Value == "&nbsp;&nbsp;indented&nbsp;&amp;lt;",
+                "Imported Markdown lines were not preserved as editable raw text.");
+
+            MethodInfo extractMethod = typeof(OneNoteProvider).GetMethod(
+                "ExtractOutlineText",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert(extractMethod != null, "Imported source extractor was not found.");
+            Assert((string)extractMethod.Invoke(null, new object[] { outline }) ==
+                "# Title\n\n  indented &lt;",
+                "Imported Markdown line breaks were not restored for preview rendering.");
 
             MethodInfo readBaseMethod = typeof(OneNoteProvider).GetMethod(
                 "ReadSourceBaseDirectory",
@@ -419,6 +431,8 @@ namespace OneNoteMarkdown.Tests
             object settings = Activator.CreateInstance(settingsType, true);
             bool keepSource = (bool)settingsType.GetProperty("ImportKeepSource").GetValue(settings);
             Assert(!keepSource, "Imported Markdown source must be disabled by default.");
+            bool createNew = (bool)settingsType.GetProperty("PreviewCreateNewOnRefresh").GetValue(settings);
+            Assert(!createNew, "Manual rendering must update one preview by default.");
             Assert(settingsType.GetProperty("LatexImageFormat").GetValue(settings).ToString() == "Png" &&
                 settingsType.GetProperty("MermaidImageFormat").GetValue(settings).ToString() == "Png",
                 "LaTeX and Mermaid image formats must default to PNG.");
@@ -445,6 +459,54 @@ namespace OneNoteMarkdown.Tests
                 new object[] { page, "PagePreview", currentKey });
             Assert(reused != null,
                 "A page preview with a stale source key was not reused.");
+
+            XElement duplicate = new XElement(one + "Outline",
+                new XElement(one + "Position",
+                    new XAttribute("x", "600"),
+                    new XAttribute("y", "200")),
+                new XElement(one + "Size",
+                    new XAttribute("width", "520"),
+                    new XAttribute("height", "100")),
+                new XElement(one + "OEChildren",
+                    new XElement(one + "OE",
+                        new XElement(one + "Meta",
+                            new XAttribute("name", "md-preview-role"),
+                            new XAttribute("content", "PagePreview")),
+                        new XElement(one + "Meta",
+                            new XAttribute("name", "md-preview-source-key"),
+                            new XAttribute("content", currentKey)),
+                        new XElement(one + "T", "duplicate"))));
+            page.Add(duplicate);
+            MethodInfo findAllMethod = typeof(PageWriter).GetMethod(
+                "FindManagedOutlines",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert(findAllMethod != null, "Managed preview deduplication lookup was not found.");
+            int matchingCount = ((System.Collections.IEnumerable)findAllMethod.Invoke(
+                null,
+                new object[] { page, "PagePreview", currentKey })).Cast<object>().Count();
+            Assert(matchingCount == 2,
+                "All duplicate page previews were not selected for singleton cleanup.");
+
+            MethodInfo findNextY = typeof(PageWriter).GetMethod(
+                "FindNextPreviewY",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert(findNextY != null, "New-preview placement helper was not found.");
+            double nextY = (double)findNextY.Invoke(
+                null,
+                new object[] { page, "PagePreview", currentKey, 50d, 40d });
+            Assert(Math.Abs(nextY - 340d) < 0.001d,
+                "A newly appended preview was not placed below existing previews.");
+
+            XElement oldOutline = new XElement(one + "Outline",
+                new XAttribute("objectID", "existing-outline"));
+            XElement replacement = new XElement(one + "Outline");
+            MethodInfo preserveIdentity = typeof(PageWriter).GetMethod(
+                "PreserveOutlineIdentity",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert(preserveIdentity != null, "Preview identity preservation helper was not found.");
+            preserveIdentity.Invoke(null, new object[] { oldOutline, replacement });
+            Assert((string)replacement.Attribute("objectID") == "existing-outline",
+                "An updated preview did not preserve its OneNote object identity.");
 
             XElement outline = new XElement(one + "Outline",
                 new XElement(one + "OEChildren",
