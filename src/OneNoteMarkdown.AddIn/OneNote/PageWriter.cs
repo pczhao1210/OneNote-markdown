@@ -184,7 +184,10 @@ namespace OneNoteMarkdown.OneNote
             XDocument pageDoc = GetPageDocument(source.PageId);
             XElement pageElement = pageDoc.Root;
             string encodedSourceKey = EncodeMeta(source.SourceKey);
-            XElement existing = FindManagedOutline(pageElement, options.Role, encodedSourceKey);
+            List<XElement> matchingPreviews = options.CreateNewPreview
+                ? new List<XElement>()
+                : FindManagedOutlines(pageElement, options.Role, encodedSourceKey);
+            XElement existing = matchingPreviews.FirstOrDefault();
             string sourceHash = ComputeHash(
                 NormalizeMarkdown(source.Markdown) + "\n" +
                 (source.BaseDirectory ?? string.Empty) + "\n" +
@@ -203,6 +206,7 @@ namespace OneNoteMarkdown.OneNote
 
                 string storedSourceHash = ReadMeta(existing, "md-preview-source-hash");
                 if (!options.ForceLayout &&
+                    matchingPreviews.Count == 1 &&
                     string.Equals(storedSourceHash, sourceHash, StringComparison.Ordinal) &&
                     (string.IsNullOrEmpty(storedBodyHash) || string.Equals(storedBodyHash, actualBodyHash, StringComparison.Ordinal)))
                 {
@@ -221,6 +225,15 @@ namespace OneNoteMarkdown.OneNote
             double width;
             double height;
             ResolvePreviewLayout(source, existing, options, out x, out y, out width, out height);
+            if (options.CreateNewPreview)
+            {
+                y = FindNextPreviewY(
+                    pageElement,
+                    options.Role,
+                    encodedSourceKey,
+                    y,
+                    options.Gap);
+            }
 
             string title = string.Empty;
             bool showTitle = false;
@@ -240,6 +253,7 @@ namespace OneNoteMarkdown.OneNote
             }
 
             XElement outlineElement = CreateOutlineElement(x, y, width, height, showTitle ? title : string.Empty, effective, nameToIndex);
+            PreserveOutlineIdentity(existing, outlineElement);
             MarkManagedPreview(
                 outlineElement,
                 previewId,
@@ -257,6 +271,10 @@ namespace OneNoteMarkdown.OneNote
             else
             {
                 existing.ReplaceWith(outlineElement);
+                for (int i = 1; i < matchingPreviews.Count; i++)
+                {
+                    matchingPreviews[i].Remove();
+                }
             }
 
             UpdatePage(pageDoc);
@@ -329,7 +347,8 @@ namespace OneNoteMarkdown.OneNote
             XDocument pageDoc = GetPageDocument(source.PageId);
             XElement pageElement = pageDoc.Root;
             string encodedSourceKey = EncodeMeta(source.SourceKey);
-            XElement existing = FindImportedSourceOutline(pageElement, encodedSourceKey);
+            List<XElement> matchingSources = FindImportedSourceOutlines(pageElement, encodedSourceKey);
+            XElement existing = matchingSources.FirstOrDefault();
             HashSet<string> needed = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "p" };
             Dictionary<string, int> nameToIndex = EnsurePageQuickStyles(pageElement, needed);
             int normalIndex = LookupStyle(nameToIndex, "p");
@@ -338,7 +357,13 @@ namespace OneNoteMarkdown.OneNote
             double y = ReadOutlineY(existing, CalculateNextOutlineY(pageDoc));
             double width = ReadOutlineDimension(existing, "width", GetTheme().PreviewWidth);
             double height = ReadOutlineDimension(existing, "height", 100d);
+            if (existing == null)
+            {
+                int lineCount = NormalizeMarkdown(source.Markdown).Split('\n').Length;
+                height = Math.Min(20000d, Math.Max(100d, lineCount * 20d + 20d));
+            }
             XElement outline = CreateImportedSourceOutline(source, encodedSourceKey, x, y, width, height, normalIndex);
+            PreserveOutlineIdentity(existing, outline);
 
             if (existing == null)
             {
@@ -347,9 +372,18 @@ namespace OneNoteMarkdown.OneNote
             else
             {
                 existing.ReplaceWith(outline);
+                for (int i = 1; i < matchingSources.Count; i++)
+                {
+                    matchingSources[i].Remove();
+                }
             }
 
             UpdatePage(pageDoc);
+            source.HasBounds = true;
+            source.Left = x;
+            source.Top = y;
+            source.Right = x + Math.Max(1d, width);
+            source.Bottom = y + Math.Max(1d, height);
         }
 
         private static XElement CreateImportedSourceOutline(
@@ -370,29 +404,35 @@ namespace OneNoteMarkdown.OneNote
                     new XAttribute("height", FormatDouble(height > 0d ? height : 100d)),
                     new XAttribute("isSetByUser", "true")));
 
-            XElement sourceOe = new XElement(OneNs + "OE");
-            if (normalStyleIndex >= 0)
+            string normalized = NormalizeMarkdown(source.Markdown);
+            string[] lines = normalized.Split('\n');
+            string sourceId = Guid.NewGuid().ToString("N");
+            XElement children = new XElement(OneNs + "OEChildren");
+            for (int i = 0; i < lines.Length; i++)
             {
-                sourceOe.Add(new XAttribute("quickStyleIndex", normalStyleIndex.ToString(CultureInfo.InvariantCulture)));
+                XElement sourceOe = new XElement(OneNs + "OE");
+                if (normalStyleIndex >= 0)
+                {
+                    sourceOe.Add(new XAttribute(
+                        "quickStyleIndex",
+                        normalStyleIndex.ToString(CultureInfo.InvariantCulture)));
+                }
+                AddMeta(sourceOe, "md-import-source-id", sourceId);
+                AddMeta(sourceOe, "md-import-source-key", encodedSourceKey);
+                AddMeta(sourceOe, "md-import-base-directory", EncodeMeta(source.BaseDirectory ?? string.Empty));
+                sourceOe.Add(new XElement(
+                    OneNs + "T",
+                    new XCData(SanitizeCData(BuildRawMarkdownLineHtml(lines[i])))));
+                children.Add(sourceOe);
             }
-            AddMeta(sourceOe, "md-import-source-id", Guid.NewGuid().ToString("N"));
-            AddMeta(sourceOe, "md-import-source-key", encodedSourceKey);
-            AddMeta(sourceOe, "md-import-base-directory", EncodeMeta(source.BaseDirectory ?? string.Empty));
-            sourceOe.Add(new XElement(OneNs + "T",
-                new XCData(SanitizeCData(BuildRawMarkdownHtml(source.Markdown)))));
-            outline.Add(new XElement(OneNs + "OEChildren", sourceOe));
+            outline.Add(children);
             return outline;
         }
 
-        private static string BuildRawMarkdownHtml(string markdown)
+        private static string BuildRawMarkdownLineHtml(string line)
         {
-            string normalized = (markdown ?? string.Empty)
-                .Replace("\r\n", "\n")
-                .Replace('\r', '\n')
-                .Replace("\t", "    ");
-            string encoded = WebUtility.HtmlEncode(normalized)
-                .Replace(" ", "&nbsp;")
-                .Replace("\n", "<br>");
+            string encoded = WebUtility.HtmlEncode((line ?? string.Empty).Replace("\t", "    "))
+                .Replace(" ", "&nbsp;");
             return encoded.Length == 0 ? "&nbsp;" : encoded;
         }
 
@@ -583,45 +623,114 @@ namespace OneNoteMarkdown.OneNote
 
         private static XElement FindManagedOutline(XElement pageElement, string role, string encodedSourceKey)
         {
-            if (pageElement == null) return null;
+            return FindManagedOutlines(pageElement, role, encodedSourceKey).FirstOrDefault();
+        }
+
+        private static List<XElement> FindManagedOutlines(
+            XElement pageElement,
+            string role,
+            string encodedSourceKey)
+        {
+            List<XElement> result = new List<XElement>();
+            if (pageElement == null) return result;
             List<XElement> outlines = pageElement.Elements(OneNs + "Outline").ToList();
-            XElement exact = outlines.FirstOrDefault(delegate(XElement outline)
+            List<XElement> exact = outlines.Where(delegate(XElement outline)
             {
                 string candidateRole = ReadMeta(outline, "md-preview-role");
                 string candidateSourceKey = ReadMeta(outline, "md-preview-source-key");
                 return string.Equals(candidateRole, role, StringComparison.Ordinal) &&
                     string.Equals(candidateSourceKey, encodedSourceKey, StringComparison.Ordinal);
-            });
-            if (exact != null) return exact;
+            }).ToList();
+            result.AddRange(exact);
 
-            if (!string.Equals(role, "PagePreview", StringComparison.Ordinal))
+            bool pageScoped = string.Equals(role, "PagePreview", StringComparison.Ordinal)
+                || string.Equals(role, "ImportPreview", StringComparison.Ordinal);
+            if (!pageScoped)
             {
-                return null;
+                return result;
             }
 
-            XElement pagePreview = outlines.FirstOrDefault(delegate(XElement outline)
+            List<XElement> pagePreviews = outlines.Where(delegate(XElement outline)
             {
                 return string.Equals(ReadMeta(outline, "md-preview-role"), "PagePreview", StringComparison.Ordinal);
-            });
-            if (pagePreview != null) return pagePreview;
+            }).ToList();
+            for (int i = 0; i < pagePreviews.Count; i++)
+            {
+                if (!result.Contains(pagePreviews[i])) result.Add(pagePreviews[i]);
+            }
 
             List<XElement> legacyImports = outlines.Where(delegate(XElement outline)
             {
                 return string.Equals(ReadMeta(outline, "md-preview-role"), "ImportPreview", StringComparison.Ordinal);
             }).ToList();
-            return legacyImports.Count == 1 ? legacyImports[0] : null;
+            for (int i = 0; i < legacyImports.Count; i++)
+            {
+                if (!result.Contains(legacyImports[i])) result.Add(legacyImports[i]);
+            }
+            return result;
+        }
+
+        private static double FindNextPreviewY(
+            XElement pageElement,
+            string role,
+            string encodedSourceKey,
+            double preferredY,
+            double gap)
+        {
+            double y = preferredY;
+            double spacing = gap < 0d ? 0d : gap;
+            List<XElement> previews = FindManagedOutlines(pageElement, role, encodedSourceKey);
+            for (int i = 0; i < previews.Count; i++)
+            {
+                double top = ReadOutlineY(previews[i], preferredY);
+                double height = ReadOutlineDimension(previews[i], "height", 100d);
+                y = Math.Max(y, top + Math.Max(1d, height) + spacing);
+            }
+            return y;
+        }
+
+        private static void PreserveOutlineIdentity(XElement existing, XElement replacement)
+        {
+            if (existing == null || replacement == null) return;
+            string[] names = { "objectID", "ID" };
+            for (int i = 0; i < names.Length; i++)
+            {
+                XAttribute attribute = existing.Attribute(names[i]);
+                if (attribute != null && replacement.Attribute(names[i]) == null)
+                {
+                    replacement.Add(new XAttribute(attribute));
+                }
+            }
         }
 
         private static XElement FindImportedSourceOutline(XElement pageElement, string encodedSourceKey)
         {
-            if (pageElement == null) return null;
-            return pageElement.Elements(OneNs + "Outline").FirstOrDefault(delegate(XElement outline)
+            return FindImportedSourceOutlines(pageElement, encodedSourceKey).FirstOrDefault();
+        }
+
+        private static List<XElement> FindImportedSourceOutlines(
+            XElement pageElement,
+            string encodedSourceKey)
+        {
+            List<XElement> result = new List<XElement>();
+            if (pageElement == null) return result;
+            List<XElement> all = pageElement.Elements(OneNs + "Outline").Where(delegate(XElement outline)
+            {
+                return !string.IsNullOrWhiteSpace(ReadMeta(outline, "md-import-source-key"));
+            }).ToList();
+            List<XElement> exact = all.Where(delegate(XElement outline)
             {
                 return string.Equals(
                     ReadMeta(outline, "md-import-source-key"),
                     encodedSourceKey,
                     StringComparison.Ordinal);
-            });
+            }).ToList();
+            result.AddRange(exact);
+            for (int i = 0; i < all.Count; i++)
+            {
+                if (!result.Contains(all[i])) result.Add(all[i]);
+            }
+            return result;
         }
 
         private static string StripHtml(string html)
@@ -631,7 +740,7 @@ namespace OneNoteMarkdown.OneNote
             return WebUtility.HtmlDecode(withoutTags).Trim();
         }
 
-        private double ReadOutlineY(XElement outline, double fallback)
+        private static double ReadOutlineY(XElement outline, double fallback)
         {
             if (outline == null) return fallback;
             XElement pos = outline.Element(OneNs + "Position");

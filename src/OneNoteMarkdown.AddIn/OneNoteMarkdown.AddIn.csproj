@@ -94,7 +94,6 @@
     <Compile Include="Features\RefreshPreviewCommand.cs" />
     <Compile Include="Features\ResetPreviewLayoutCommand.cs" />
     <Compile Include="Features\RenderCurrentLineCommand.cs" />
-    <Compile Include="Features\RenderCurrentOutlineMarkdownCommand.cs" />
     <Compile Include="Features\RenderPageMarkdownCommand.cs" />
     <Compile Include="Features\RenderSelectionMarkdownCommand.cs" />
     <Compile Include="Features\ToggleLineSourceCommand.cs" />

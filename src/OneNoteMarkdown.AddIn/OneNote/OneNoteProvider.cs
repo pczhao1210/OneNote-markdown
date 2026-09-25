@@ -166,64 +166,6 @@ namespace OneNoteMarkdown.OneNote
             return result;
         }
 
-        internal PreviewSource GetCurrentOutlinePreviewSource()
-        {
-            string pageId = GetCurrentPageId();
-            if (string.IsNullOrWhiteSpace(pageId)) return null;
-
-            string selectionXml;
-            _app.GetPageContent(pageId, out selectionXml, PageInfo.piSelection, XMLSchema.xs2013);
-            if (string.IsNullOrWhiteSpace(selectionXml)) return null;
-
-            XDocument selection;
-            try { selection = XDocument.Parse(selectionXml); }
-            catch { return null; }
-            XElement active = FindDeepestSelectedOe(selection);
-            if (active == null) return null;
-            XElement selectedOutline = active.Ancestors(OneNs + "Outline").FirstOrDefault();
-            string outlineId = selectedOutline == null ? null :
-                ((string)selectedOutline.Attribute("objectID") ?? (string)selectedOutline.Attribute("ID"));
-
-            string fullXml;
-            _app.GetPageContent(pageId, out fullXml, PageInfo.piAll, XMLSchema.xs2013);
-            XDocument full;
-            try { full = XDocument.Parse(fullXml); }
-            catch { return null; }
-
-            XElement outline = null;
-            if (!string.IsNullOrWhiteSpace(outlineId))
-            {
-                outline = full.Descendants(OneNs + "Outline").FirstOrDefault(delegate(XElement candidate)
-                {
-                    return string.Equals((string)candidate.Attribute("objectID"), outlineId, StringComparison.Ordinal)
-                        || string.Equals((string)candidate.Attribute("ID"), outlineId, StringComparison.Ordinal);
-                });
-            }
-            if (outline == null)
-            {
-                string objectId = (string)active.Attribute("objectID");
-                XElement fullOe = full.Descendants(OneNs + "OE").FirstOrDefault(delegate(XElement candidate)
-                {
-                    return string.Equals((string)candidate.Attribute("objectID"), objectId, StringComparison.Ordinal);
-                });
-                outline = fullOe == null ? null : fullOe.Ancestors(OneNs + "Outline").FirstOrDefault();
-            }
-            if (outline == null || IsManagedOutline(outline)) return null;
-
-            string markdown = ExtractOutlineText(outline);
-            if (string.IsNullOrWhiteSpace(markdown)) return null;
-            string key = (string)outline.Attribute("objectID") ?? (string)outline.Attribute("ID")
-                ?? (string)active.Attribute("objectID");
-            PreviewSource result = new PreviewSource
-            {
-                PageId = pageId,
-                SourceKey = "outline:" + (key ?? pageId),
-                Markdown = markdown
-            };
-            ApplyBounds(result, new[] { outline });
-            return result;
-        }
-
         public string GetManagedOutlineText(string pageId, string role)
         {
             if (string.IsNullOrWhiteSpace(pageId) || string.IsNullOrWhiteSpace(role)) return string.Empty;
@@ -322,6 +264,10 @@ namespace OneNoteMarkdown.OneNote
         private static string ExtractOutlineText(XElement outline)
         {
             if (outline == null) return string.Empty;
+            if (IsImportedSourceOutline(outline))
+            {
+                return ExtractImportedSourceText(outline);
+            }
             List<string> lines = new List<string>();
             XElement children = outline.Element(OneNs + "OEChildren");
             if (children != null)
@@ -337,6 +283,54 @@ namespace OneNoteMarkdown.OneNote
                 }
             }
             return string.Join("\n", lines).Trim();
+        }
+
+        private static bool IsImportedSourceOutline(XElement outline)
+        {
+            return outline != null && outline.Descendants(OneNs + "Meta").Any(delegate(XElement meta)
+            {
+                return string.Equals(
+                    (string)meta.Attribute("name"),
+                    "md-import-source-key",
+                    StringComparison.Ordinal);
+            });
+        }
+
+        private static string ExtractImportedSourceText(XElement outline)
+        {
+            XElement children = outline == null ? null : outline.Element(OneNs + "OEChildren");
+            if (children == null) return string.Empty;
+            List<string> lines = new List<string>();
+            AppendImportedSourceLines(children, 0, lines);
+            return string.Join("\n", lines).TrimEnd('\r', '\n');
+        }
+
+        private static void AppendImportedSourceLines(
+            XElement children,
+            int depth,
+            List<string> lines)
+        {
+            foreach (XElement oe in children.Elements(OneNs + "OE"))
+            {
+                List<string> textParts = oe.Elements(OneNs + "T")
+                    .Select(delegate(XElement text) { return HtmlToPlainText(text.Value, true); })
+                    .ToList();
+                string line = string.Join("\n", textParts);
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    lines.Add(string.Empty);
+                }
+                else
+                {
+                    lines.Add(RestoreStructuralIndent(line, depth));
+                }
+
+                XElement nested = oe.Element(OneNs + "OEChildren");
+                if (nested != null)
+                {
+                    AppendImportedSourceLines(nested, depth + 1, lines);
+                }
+            }
         }
 
         private static void AppendOutlineSourceLines(XElement children, int depth, List<string> lines)

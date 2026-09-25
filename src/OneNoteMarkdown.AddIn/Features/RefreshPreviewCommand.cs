@@ -9,7 +9,7 @@ namespace OneNoteMarkdown.Features
         {
             try
             {
-                PreviewManager.RefreshCurrentPage(true);
+                PreviewManager.RefreshCurrentPage(true, true);
             }
             catch (Exception ex)
             {

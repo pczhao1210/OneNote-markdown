@@ -53,26 +53,22 @@ namespace OneNoteMarkdown.Features
                         return;
                     }
 
+                    ThemeSettings settings = ThemeSettings.Load();
                     PreviewSource source = new PreviewSource
                     {
                         PageId = pageId,
-                        SourceKey = "import:" + filePath.ToUpperInvariant(),
+                        SourceKey = settings.ImportKeepSource
+                            ? "page:" + pageId
+                            : "import:" + filePath.ToUpperInvariant(),
                         Markdown = markdown,
                         BaseDirectory = fileInfo.DirectoryName
                     };
 
-                    ThemeSettings settings = ThemeSettings.Load();
                     if (settings.ImportKeepSource)
                     {
                         PageWriter writer = new PageWriter();
                         writer.UpsertImportedMarkdownSource(source);
-                        PreviewSource pageSource = provider.GetCurrentPagePreviewSource();
-                        if (pageSource == null || string.IsNullOrWhiteSpace(pageSource.Markdown))
-                        {
-                            Msg.Show(Loc.S("Msg.ParseEmpty"), Loc.S("Common.AppTitle"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                            return;
-                        }
-                        PreviewManager.Render(pageSource, "PagePreview", false, true);
+                        PreviewManager.Render(source, "PagePreview", false, true);
                     }
                     else
                     {
