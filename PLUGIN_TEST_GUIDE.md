@@ -3,7 +3,7 @@
 ## 1. 构建与安装
 
 1. 执行 `powershell -ExecutionPolicy Bypass -File .\build.ps1`。
-2. 按 OneNote 架构安装 `OneNoteMarkdownSetup-1.2.1-fix-x86.exe`、`OneNoteMarkdownSetup-1.2.1-fix-x64.exe` 或 `OneNoteMarkdownSetup-1.2.1-fix-arm64.exe`。
+2. 按 OneNote 架构安装 `OneNoteMarkdownSetup-1.2.1-fix.1-x86.exe`、`OneNoteMarkdownSetup-1.2.1-fix.1-x64.exe` 或 `OneNoteMarkdownSetup-1.2.1-fix.1-arm64.exe`。
 3. 启动 OneNote，确认 `Markdown` 功能区可见且启动无“无法顺利启动”提示。
 
 ## 2. 自动回归

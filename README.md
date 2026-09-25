@@ -10,9 +10,9 @@ A Microsoft OneNote add-in for writing and rendering Markdown directly in your n
 
 Download from the [Releases](https://github.com/oldding/OneNote-markdown/releases) page:
 
-- `OneNoteMarkdownSetup-1.2.1-fix-x86.exe` — for 32-bit OneNote
-- `OneNoteMarkdownSetup-1.2.1-fix-x64.exe` — for x64 OneNote
-- `OneNoteMarkdownSetup-1.2.1-fix-arm64.exe` — for native Arm64 OneNote on Windows 11; requires .NET Framework 4.8.1
+- `OneNoteMarkdownSetup-1.2.1-fix.1-x86.exe` — for 32-bit OneNote
+- `OneNoteMarkdownSetup-1.2.1-fix.1-x64.exe` — for x64 OneNote
+- `OneNoteMarkdownSetup-1.2.1-fix.1-arm64.exe` — for native Arm64 OneNote on Windows 11; requires .NET Framework 4.8.1
 
 > The installer must match **OneNote's bitness**, not Windows'. A 64-bit Windows may still run 32-bit OneNote.
 
@@ -80,9 +80,9 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 
 Build output:
 
-- `src/OneNoteMarkdown.Installer/Output/OneNoteMarkdownSetup-1.2.1-fix-x86.exe`
-- `src/OneNoteMarkdown.Installer/Output/OneNoteMarkdownSetup-1.2.1-fix-x64.exe`
-- `src/OneNoteMarkdown.Installer/Output/OneNoteMarkdownSetup-1.2.1-fix-arm64.exe`
+- `src/OneNoteMarkdown.Installer/Output/OneNoteMarkdownSetup-1.2.1-fix.1-x86.exe`
+- `src/OneNoteMarkdown.Installer/Output/OneNoteMarkdownSetup-1.2.1-fix.1-x64.exe`
+- `src/OneNoteMarkdown.Installer/Output/OneNoteMarkdownSetup-1.2.1-fix.1-arm64.exe`
 
 GitHub Actions builds also upload both installers as artifacts.
 

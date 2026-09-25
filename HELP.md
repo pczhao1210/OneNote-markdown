@@ -1,6 +1,6 @@
 # OneNote Markdown Help
 
-Version: `1.2.1-fix`. Install the package matching OneNote itself: `x86`, `x64`, or native `arm64`. The Arm64 package requires Windows 11 and .NET Framework 4.8.1.
+Version: `1.2.1-fix.1`. Install the package matching OneNote itself: `x86`, `x64`, or native `arm64`. The Arm64 package requires Windows 11 and .NET Framework 4.8.1.
 
 > [中文说明](#中文说明)
 
@@ -72,7 +72,7 @@ Logs contain status, timing, and errors but not Markdown source text:
 
 # OneNote Markdown 中文说明
 
-版本：`1.2.1-fix`。安装包必须匹配 OneNote 本身的架构：`x86`、`x64` 或原生 `arm64`；Arm64 安装包要求 Windows 11 和 .NET Framework 4.8.1。
+版本：`1.2.1-fix.1`。安装包必须匹配 OneNote 本身的架构：`x86`、`x64` 或原生 `arm64`；Arm64 安装包要求 Windows 11 和 .NET Framework 4.8.1。
 
 ## 对照预览
 

@@ -1,7 +1,7 @@
 # OneNote Markdown 综合转写测试
 
-> 测试文件版本：1.2.1-fix  
-> 用途：验证 Markdown 导入、渲染、刷新、源码切换与导出往返。  
+> 测试文件版本：1.2.1-fix.1
+> 用途：验证 Markdown 导入、渲染、刷新、源码切换与导出往返。
 > 建议：先保留本文件副本，再分别测试“整页”“当前正文框”“选区”和“原地渲染”。
 
 ---
@@ -183,7 +183,7 @@ foreach ($architecture in $architectures) {
 ```json
 {
   "name": "OneNote Markdown",
-  "version": "1.2.1-fix",
+  "version": "1.2.1-fix.1",
   "architectures": ["x86", "x64", "arm64"],
   "enabled": true
 }
@@ -336,7 +336,7 @@ OneNote
 
 2026-09-25 不是列表。
 
-1.2.1-fix 不是有序列表。
+1.2.1-fix.1 不是有序列表。
 
 ---
 
@@ -382,7 +382,7 @@ OneNote
 
 如果以下标记在导出文件中仍然存在，说明文件尾部此前的内容没有被截断：
 
-`END-OF-SUPPORTED-CONTENT-1.2.1-fix`
+`END-OF-SUPPORTED-CONTENT-1.2.1-fix.1`
 
 ---
 
