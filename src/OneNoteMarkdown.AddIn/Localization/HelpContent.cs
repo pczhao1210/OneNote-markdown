@@ -59,7 +59,7 @@ namespace OneNoteMarkdown.Localization
         private static string GetAboutZh()
         {
             return "<h1>关于 OneNote Markdown</h1>"
-                + "<p class='version'>版本：1.2.1-fix.2</p>"
+                + "<p class='version'>版本：1.2.1-fix.3</p>"
                 + "<h2>开发背景</h2>"
                 + "<p>本插件由 OneNote MVP 开发。</p>"
                 + "<p>Microsoft OneNote 是一款优秀的笔记软件，但遗憾的是 OneNote 原生并不支持 Markdown 语法。"
@@ -103,9 +103,9 @@ namespace OneNoteMarkdown.Localization
                 + "很多 64 位 Windows 系统上安装的是 32 位 OneNote（尤其是 Microsoft 365 默认安装）。</p>"
                 + "<h2>第二步：安装插件</h2>"
                 + "<ol>"
-                + "<li>32 位 OneNote → 运行 <code>OneNoteMarkdownSetup-1.2.1-fix.2-x86.exe</code></li>"
-                + "<li>x64 OneNote → 运行 <code>OneNoteMarkdownSetup-1.2.1-fix.2-x64.exe</code></li>"
-                + "<li>Windows 11 原生 Arm64 OneNote → 运行 <code>OneNoteMarkdownSetup-1.2.1-fix.2-arm64.exe</code>（要求 .NET Framework 4.8.1）</li>"
+                + "<li>32 位 OneNote → 运行 <code>OneNoteMarkdownSetup-1.2.1-fix.3-x86.exe</code></li>"
+                + "<li>x64 OneNote → 运行 <code>OneNoteMarkdownSetup-1.2.1-fix.3-x64.exe</code></li>"
+                + "<li>Windows 11 原生 Arm64 OneNote → 运行 <code>OneNoteMarkdownSetup-1.2.1-fix.3-arm64.exe</code>（要求 .NET Framework 4.8.1）</li>"
                 + "<li>安装完成后，重新启动 OneNote</li>"
                 + "<li>功能区（Ribbon）会出现 \"Markdown\" 选项卡</li>"
                 + "</ol>"
@@ -437,7 +437,7 @@ namespace OneNoteMarkdown.Localization
         private static string GetAboutEn()
         {
             return "<h1>About OneNote Markdown</h1>"
-                + "<p class='version'>Version: 1.2.1-fix.2</p>"
+                + "<p class='version'>Version: 1.2.1-fix.3</p>"
                 + "<h2>Background</h2>"
                 + "<p>This plugin is developed by a OneNote MVP.</p>"
                 + "<p>Microsoft OneNote is an excellent note-taking application, but unfortunately it does not natively support Markdown syntax. "
@@ -482,9 +482,9 @@ namespace OneNoteMarkdown.Localization
                 + "Many 64-bit Windows systems have 32-bit OneNote installed (especially Microsoft 365 default installs).</p>"
                 + "<h2>Step 2: Install the Plugin</h2>"
                 + "<ol>"
-                + "<li>32-bit OneNote → Run <code>OneNoteMarkdownSetup-1.2.1-fix.2-x86.exe</code></li>"
-                + "<li>x64 OneNote → Run <code>OneNoteMarkdownSetup-1.2.1-fix.2-x64.exe</code></li>"
-                + "<li>Native Arm64 OneNote on Windows 11 → Run <code>OneNoteMarkdownSetup-1.2.1-fix.2-arm64.exe</code> (.NET Framework 4.8.1 required)</li>"
+                + "<li>32-bit OneNote → Run <code>OneNoteMarkdownSetup-1.2.1-fix.3-x86.exe</code></li>"
+                + "<li>x64 OneNote → Run <code>OneNoteMarkdownSetup-1.2.1-fix.3-x64.exe</code></li>"
+                + "<li>Native Arm64 OneNote on Windows 11 → Run <code>OneNoteMarkdownSetup-1.2.1-fix.3-arm64.exe</code> (.NET Framework 4.8.1 required)</li>"
                 + "<li>After installation, restart OneNote</li>"
                 + "<li>A \"Markdown\" tab will appear in the Ribbon</li>"
                 + "</ol>"
