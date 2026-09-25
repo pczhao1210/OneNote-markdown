@@ -40,6 +40,7 @@ namespace OneNoteMarkdown.Settings
         public bool AutoRefreshEnabled { get; private set; }
         public int AutoRefreshDelayMilliseconds { get; private set; }
         public bool PreviewCreateNewOnRefresh { get; private set; }
+        public bool PreviewConflictNotificationEnabled { get; private set; }
         public bool AllowRemoteImages { get; private set; }
         public bool ImportKeepSource { get; private set; }
         public int DiagramTimeoutMilliseconds { get; private set; }
@@ -90,6 +91,7 @@ namespace OneNoteMarkdown.Settings
             AutoRefreshEnabled = false;
             AutoRefreshDelayMilliseconds = 700;
             PreviewCreateNewOnRefresh = false;
+            PreviewConflictNotificationEnabled = true;
             AllowRemoteImages = false;
             ImportKeepSource = false;
             DiagramTimeoutMilliseconds = 3000;
@@ -155,6 +157,12 @@ namespace OneNoteMarkdown.Settings
             {
                 s.PreviewCreateNewOnRefresh = ParseBool(value, s.PreviewCreateNewOnRefresh);
             }
+            if (kv.TryGetValue("preview.conflictNotification", out value))
+            {
+                s.PreviewConflictNotificationEnabled = ParseBool(
+                    value,
+                    s.PreviewConflictNotificationEnabled);
+            }
             if (kv.TryGetValue("image.allowRemote", out value)) s.AllowRemoteImages = ParseBool(value, s.AllowRemoteImages);
             if (kv.TryGetValue("import.keepSource", out value)) s.ImportKeepSource = ParseBool(value, s.ImportKeepSource);
             if (kv.TryGetValue("diagram.timeoutMs", out value))
@@ -193,6 +201,7 @@ namespace OneNoteMarkdown.Settings
                         "preview.autoRefresh=false\r\n" +
                         "preview.autoRefresh.delayMs=700\r\n" +
                         "preview.createNewOnRefresh=false\r\n" +
+                        "preview.conflictNotification=true\r\n" +
                         "image.allowRemote=false\r\n" +
                         "import.keepSource=false\r\n" +
                         "diagram.timeoutMs=3000\r\n" +

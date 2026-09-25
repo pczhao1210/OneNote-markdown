@@ -84,6 +84,7 @@ namespace OneNoteMarkdown.Localization
             {"Settings.PreviewGap", "Preview gap"},
             {"Settings.PreviewWidth", "Preview width"},
             {"Settings.CreateNewOnRefresh", "Create a new preview on each manual render (off by default)"},
+            {"Settings.PreviewConflictNotification", "Ask before overwriting an edited preview (off overwrites directly)"},
             {"Settings.AutoRefresh", "Refresh side-by-side previews after editing"},
             {"Settings.AutoRefreshDelay", "Auto-refresh delay (milliseconds)"},
             {"Settings.Language", "UI Language"},

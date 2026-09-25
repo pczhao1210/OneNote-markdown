@@ -434,6 +434,11 @@ namespace OneNoteMarkdown.Tests
             Assert(!keepSource, "Imported Markdown source must be disabled by default.");
             bool createNew = (bool)settingsType.GetProperty("PreviewCreateNewOnRefresh").GetValue(settings);
             Assert(!createNew, "Manual rendering must update one preview by default.");
+            bool conflictNotification = (bool)settingsType
+                .GetProperty("PreviewConflictNotificationEnabled")
+                .GetValue(settings);
+            Assert(conflictNotification,
+                "Preview conflict notifications must remain enabled by default.");
             Assert(settingsType.GetProperty("LatexImageFormat").GetValue(settings).ToString() == "Png" &&
                 settingsType.GetProperty("MermaidImageFormat").GetValue(settings).ToString() == "Png",
                 "LaTeX and Mermaid image formats must default to PNG.");
