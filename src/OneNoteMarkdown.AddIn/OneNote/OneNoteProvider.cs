@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Text.RegularExpressions;
@@ -723,9 +724,85 @@ namespace OneNoteMarkdown.OneNote
                 string[] ids = sourceKey.Substring("selection:".Length).Split('|');
                 if (ids.Length > 0) sourceObjectId = ids[0];
             }
+            else if (sourceKey.StartsWith("page:", StringComparison.Ordinal))
+            {
+                sourceObjectId = ResolvePageSourceObjectId(full.Root, outline, sourceKey);
+            }
 
+            if (string.IsNullOrWhiteSpace(sourceObjectId)) return false;
             _app.NavigateTo(pageId, sourceObjectId, false);
             return true;
+        }
+
+        private static string ResolvePageSourceObjectId(
+            XElement pageElement,
+            XElement previewOutline,
+            string sourceKey)
+        {
+            if (pageElement == null || string.IsNullOrWhiteSpace(sourceKey)) return string.Empty;
+            string encodedSourceKey = Convert.ToBase64String(
+                Encoding.UTF8.GetBytes(sourceKey));
+            List<XElement> candidates = pageElement.Elements(OneNs + "Outline")
+                .Where(delegate(XElement candidate)
+                {
+                    return !ReferenceEquals(candidate, previewOutline)
+                        && !IsManagedOutline(candidate);
+                })
+                .ToList();
+
+            XElement importedSource = candidates.FirstOrDefault(delegate(XElement candidate)
+            {
+                XElement meta = candidate.Descendants(OneNs + "Meta").FirstOrDefault(
+                    delegate(XElement item)
+                    {
+                        return string.Equals(
+                            (string)item.Attribute("name"),
+                            "md-import-source-key",
+                            StringComparison.Ordinal);
+                    });
+                return meta != null && string.Equals(
+                    (string)meta.Attribute("content"),
+                    encodedSourceKey,
+                    StringComparison.Ordinal);
+            });
+            if (importedSource != null)
+            {
+                return ReadNavigableObjectId(importedSource);
+            }
+
+            XElement firstSource = candidates
+                .OrderBy(delegate(XElement candidate) { return ReadPosition(candidate, "y"); })
+                .ThenBy(delegate(XElement candidate) { return ReadPosition(candidate, "x"); })
+                .FirstOrDefault();
+            return ReadNavigableObjectId(firstSource);
+        }
+
+        private static string ReadNavigableObjectId(XElement outline)
+        {
+            if (outline == null) return string.Empty;
+            XElement firstOe = outline.Descendants(OneNs + "OE").FirstOrDefault(
+                delegate(XElement oe)
+                {
+                    return !string.IsNullOrWhiteSpace((string)oe.Attribute("objectID"));
+                });
+            if (firstOe != null) return (string)firstOe.Attribute("objectID");
+            return (string)outline.Attribute("objectID")
+                ?? (string)outline.Attribute("ID")
+                ?? string.Empty;
+        }
+
+        private static double ReadPosition(XElement outline, string coordinate)
+        {
+            XElement position = outline == null ? null : outline.Element(OneNs + "Position");
+            double value;
+            return position != null
+                && double.TryParse(
+                    (string)position.Attribute(coordinate),
+                    NumberStyles.Float,
+                    CultureInfo.InvariantCulture,
+                    out value)
+                ? value
+                : double.MaxValue;
         }
 
         private static string HtmlToPlainText(string html, bool preserveBreaks)
