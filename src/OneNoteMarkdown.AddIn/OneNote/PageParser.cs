@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Net;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
@@ -46,7 +45,7 @@ namespace OneNoteMarkdown.OneNote
                 if (outline.IsManagedPreview)
                 {
                     string expectedBodyHash = ReadMeta(outlineElement, "md-preview-body-hash");
-                    string actualBodyHash = ComputeManagedBodyHash(outlineElement);
+                    string actualBodyHash = PageWriter.ComputeManagedBodyHash(outlineElement);
                     outline.IsManagedPreviewModified = !string.IsNullOrWhiteSpace(expectedBodyHash)
                         && !string.Equals(expectedBodyHash, actualBodyHash, StringComparison.Ordinal);
                 }
@@ -162,43 +161,6 @@ namespace OneNoteMarkdown.OneNote
                     return string.Equals((string)element.Attribute("name"), name, StringComparison.Ordinal);
                 });
             return meta == null ? string.Empty : ((string)meta.Attribute("content") ?? string.Empty);
-        }
-
-        private static string ComputeManagedBodyHash(XElement outline)
-        {
-            StringBuilder value = new StringBuilder();
-            IEnumerable<XElement> content = outline.Descendants(OneNs + "OE").Where(delegate(XElement oe)
-            {
-                return oe.Elements(OneNs + "Meta").Any(delegate(XElement meta)
-                {
-                    return string.Equals((string)meta.Attribute("name"), "md-preview-group", StringComparison.Ordinal);
-                });
-            });
-            foreach (XElement oe in content)
-            {
-                value.Append("OE|");
-                foreach (XElement text in oe.DescendantsAndSelf(OneNs + "T"))
-                {
-                    value.Append("T:").Append(NormalizeManagedText(text.Value)).Append('|');
-                }
-                foreach (XElement data in oe.Descendants(OneNs + "Data"))
-                {
-                    value.Append("D:").Append(Regex.Replace(data.Value ?? string.Empty, "\\s+", string.Empty)).Append('|');
-                }
-            }
-            using (SHA256 sha = SHA256.Create())
-            {
-                return Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(value.ToString())));
-            }
-        }
-
-        private static string NormalizeManagedText(string html)
-        {
-            string value = TagRegex.Replace(html ?? string.Empty, string.Empty);
-            return WebUtility.HtmlDecode(value)
-                .Replace('\u00a0', ' ')
-                .Replace("\r\n", "\n")
-                .Replace('\r', '\n');
         }
 
         private static bool HasMeta(XElement oeElement, string name)
