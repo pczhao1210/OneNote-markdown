@@ -30,6 +30,7 @@ namespace OneNoteMarkdown.Features
                         return;
                     }
 
+                    string filePath = NormalizeSelectedPath(dialog.FileName);
                     string pageId = provider.GetCurrentPageId();
                     if (string.IsNullOrWhiteSpace(pageId))
                     {
@@ -37,14 +38,14 @@ namespace OneNoteMarkdown.Features
                         return;
                     }
 
-                    FileInfo fileInfo = new FileInfo(dialog.FileName);
+                    FileInfo fileInfo = new FileInfo(filePath);
                     if (fileInfo.Length > 10 * 1024 * 1024)
                     {
                         Msg.Show(Loc.S("Msg.FileTooLarge"), Loc.S("Common.AppTitle"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         return;
                     }
 
-                    string markdown = File.ReadAllText(dialog.FileName, Encoding.UTF8);
+                    string markdown = File.ReadAllText(filePath, Encoding.UTF8);
                     if (string.IsNullOrWhiteSpace(markdown))
                     {
                         Msg.Show(Loc.S("Msg.FileEmpty"), Loc.S("Common.AppTitle"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -54,7 +55,7 @@ namespace OneNoteMarkdown.Features
                     PreviewSource source = new PreviewSource
                     {
                         PageId = pageId,
-                        SourceKey = "import:" + Path.GetFullPath(dialog.FileName).ToUpperInvariant(),
+                        SourceKey = "import:" + filePath.ToUpperInvariant(),
                         Markdown = markdown,
                         BaseDirectory = fileInfo.DirectoryName
                     };
@@ -83,6 +84,21 @@ namespace OneNoteMarkdown.Features
                 Logger.Error("Import markdown failed", ex);
                 Msg.Show(Loc.S("Msg.ImportFailed", ex.Message), Loc.S("Common.AppTitle"), MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        internal static string NormalizeSelectedPath(string selectedPath)
+        {
+            string path = (selectedPath ?? string.Empty).Trim().Trim('"');
+            if (path.Length == 0)
+            {
+                throw new ArgumentException("No Markdown file was selected.", nameof(selectedPath));
+            }
+            if (path.IndexOfAny(Path.GetInvalidPathChars()) >= 0)
+            {
+                throw new ArgumentException("The selected Markdown path contains invalid characters.", nameof(selectedPath));
+            }
+
+            return Path.GetFullPath(path);
         }
     }
 }

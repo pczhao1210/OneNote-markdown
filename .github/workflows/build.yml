@@ -1,7 +1,7 @@
 name: Build
 
 env:
-  RELEASE_NAME: 1.2.1-fix
+  RELEASE_NAME: 1.2.1-fix.1
 
 permissions:
   contents: write

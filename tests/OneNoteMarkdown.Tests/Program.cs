@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Xml.Linq;
 using OneNoteMarkdown.Markdown;
@@ -24,6 +25,11 @@ namespace OneNoteMarkdown.Tests
             Run("Nested OneNote selection safety", TestNestedOneNoteSelectionSafety);
             Run("Markdown parser boundaries", TestMarkdownParserBoundaries);
             Run("Table and image parsing", TestTableAndImageParsing);
+            Run("Import path normalization", TestImportPathNormalization);
+            Run("Nested source structure", TestNestedSourceStructure);
+            Run("Inline escaping", TestInlineEscaping);
+            Run("Inline LaTeX rendering", TestInlineLatexRendering);
+            Run("Hidden UI anchor", TestHiddenUiAnchor);
             Run("Managed preview export", TestManagedPreviewExport);
             Run("Offline Mermaid rendering", TestOfflineMermaidRendering);
 
@@ -159,6 +165,16 @@ namespace OneNoteMarkdown.Tests
                 blocks[2].Text.Contains("var x = 1;"),
                 "A shorter code fence incorrectly closed a longer fence.");
 
+            var quotes = MarkdownRenderer.RenderToBlocks(
+                "> outer\n" +
+                "> > inner\n" +
+                "> > - nested item");
+            Assert(quotes.Count == 3 &&
+                quotes[0].Kind == MarkdownBlockKind.Blockquote && quotes[0].Level == 1 &&
+                quotes[1].Level == 2 && quotes[1].Text == "inner" &&
+                quotes[2].Level == 2 && quotes[2].Text == "- nested item",
+                "Nested blockquote depth was not retained.");
+
             var incomplete = MarkdownRenderer.RenderToBlocks("```csharp\nvar value = 1;");
             Assert(incomplete.Count == 1 &&
                 incomplete[0].Kind == MarkdownBlockKind.Paragraph &&
@@ -172,7 +188,7 @@ namespace OneNoteMarkdown.Tests
                 "| Name | Value |\n" +
                 "| --- | ---: |\n" +
                 "| alpha | 1 |\n\n" +
-                "![diagram](images/demo.png)",
+                "![diagram](images/demo.png \"Preview image\")",
                 @"C:\notes");
 
             Assert(blocks.Count == 3, "Expected table, blank line, and image.");
@@ -183,6 +199,76 @@ namespace OneNoteMarkdown.Tests
             Assert(blocks[2].Kind == MarkdownBlockKind.Image &&
                 string.Equals(blocks[2].Target, @"C:\notes\images\demo.png", StringComparison.OrdinalIgnoreCase),
                 "Relative image path was not resolved against the import directory.");
+        }
+
+        private static void TestImportPathNormalization()
+        {
+            string expected = System.IO.Path.GetFullPath(@"C:\notes\test.md");
+            string actual = Features.ImportMarkdownCommand.NormalizeSelectedPath("  \"" + expected + "\"  ");
+            Assert(string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase),
+                "A quoted file-dialog path was not normalized.");
+        }
+
+        private static void TestNestedSourceStructure()
+        {
+            XDocument document = XDocument.Parse(
+                "<one:Outline xmlns:one=\"" + OneNs + "\"><one:OEChildren>" +
+                "<one:OE><one:T><![CDATA[- parent]]></one:T><one:OEChildren>" +
+                "<one:OE><one:T><![CDATA[- child]]></one:T></one:OE>" +
+                "</one:OEChildren></one:OE></one:OEChildren></one:Outline>");
+            MethodInfo method = typeof(OneNoteProvider).GetMethod(
+                "ExtractOutlineText",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert(method != null, "Outline source extraction method was not found.");
+            string source = (string)method.Invoke(null, new object[] { document.Root });
+            Assert(source == "- parent\n  - child",
+                "Nested OneNote structure was flattened while rebuilding Markdown source.");
+        }
+
+        private static void TestInlineEscaping()
+        {
+            MethodInfo method = typeof(PageWriter).GetMethod(
+                "ApplyInlineMarkdownStyles",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert(method != null, "Inline Markdown formatter was not found.");
+            string html = (string)method.Invoke(null, new object[] { @"\*literal\* and \[text\]" });
+            Assert(html == "*literal* and [text]",
+                "Escaped Markdown punctuation was not restored as literal text.");
+        }
+
+        private static void TestInlineLatexRendering()
+        {
+            LatexImageRenderer renderer = new LatexImageRenderer();
+            byte[] png;
+            int width;
+            int height;
+            string error;
+            bool rendered = renderer.TryRenderInlineTextToPng(
+                "Energy $E=mc^2$ and $a^2+b^2=c^2$.",
+                "Calibri",
+                11d,
+                out png,
+                out width,
+                out height,
+                out error);
+
+            Assert(rendered, "Inline LaTeX did not render: " + error);
+            Assert(png != null && png.Length > 24 && png[0] == 0x89 && png[1] == 0x50,
+                "Inline LaTeX renderer did not return a PNG.");
+            Assert(width > 100 && height > 10, "Inline LaTeX image dimensions were invalid.");
+        }
+
+        private static void TestHiddenUiAnchor()
+        {
+            System.Windows.Forms.IWin32Window anchor = UI.UiThread.Anchor;
+            Assert(anchor != null && anchor.Handle != IntPtr.Zero, "UI anchor window was not created.");
+            Assert(!IsWindowVisible(anchor.Handle), "UI anchor window must never be visible.");
+            const int gwlExStyle = -20;
+            const int wsExToolWindow = 0x00000080;
+            int exStyle = GetWindowLong(anchor.Handle, gwlExStyle);
+            Assert((exStyle & wsExToolWindow) != 0,
+                "UI anchor window must be a tool window so it cannot appear in Alt+Tab.");
+            UI.UiThread.Shutdown();
         }
 
         private static void TestManagedPreviewExport()
@@ -259,5 +345,11 @@ namespace OneNoteMarkdown.Tests
         {
             if (!condition) throw new InvalidOperationException(message);
         }
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr hWnd);
+
+        [DllImport("user32.dll", EntryPoint = "GetWindowLong")]
+        private static extern int GetWindowLong(IntPtr hWnd, int index);
     }
 }

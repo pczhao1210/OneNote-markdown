@@ -4,9 +4,11 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Xml.Linq;
 using Microsoft.Office.Interop.OneNote;
 using OneNoteMarkdown.Logging;
@@ -29,6 +31,7 @@ namespace OneNoteMarkdown.OneNote
         private static readonly Regex HighlightRegex = new Regex("==([^=\\r\\n]+?)==", RegexOptions.Compiled);
         private static readonly Regex UnderlineRegex = new Regex("(?<!\\+)\\+\\+([^+\\r\\n]+?)\\+\\+(?!\\+)", RegexOptions.Compiled);
         private static readonly Regex LinkRegex = new Regex("(?<!!)\\[([^\\]]+)\\]\\(([^)]+)\\)", RegexOptions.Compiled);
+        private static readonly Regex EscapedMarkdownRegex = new Regex("\\\\([\\\\`*{}\\[\\]()#+\\-.!_>])", RegexOptions.Compiled);
 
         // Cached settings: loaded once per add-in lifetime, re-loaded if null (e.g. first use).
         // Access via GetTheme() only; do not read _theme directly in instance methods.
@@ -144,6 +147,26 @@ namespace OneNoteMarkdown.OneNote
         }
 
         internal PreviewUpdateStatus UpsertManagedPreview(
+            PreviewSource source,
+            IList<MarkdownBlock> blocks,
+            PreviewWriteOptions options)
+        {
+            const int concurrentPageChange = unchecked((int)0x80042010);
+            for (int attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    return UpsertManagedPreviewOnce(source, blocks, options);
+                }
+                catch (COMException ex) when (ex.ErrorCode == concurrentPageChange && attempt < 3)
+                {
+                    Logger.Warn("Managed preview update raced with a OneNote page save; retrying with fresh page XML.");
+                    Thread.Sleep(75);
+                }
+            }
+        }
+
+        private PreviewUpdateStatus UpsertManagedPreviewOnce(
             PreviewSource source,
             IList<MarkdownBlock> blocks,
             PreviewWriteOptions options)
@@ -643,7 +666,7 @@ namespace OneNoteMarkdown.OneNote
                         break;
                     case MarkdownBlockKind.Blockquote:
                         styleIndex = normalIndex;
-                        text = GetTheme().QuotePrefix + (block.Text ?? string.Empty);
+                        text = BuildBlockquoteText(block);
                         childrenElement.Add(CreateStyledOe(text, styleIndex, false, true));
                         break;
                     case MarkdownBlockKind.HorizontalRule:
@@ -655,6 +678,9 @@ namespace OneNoteMarkdown.OneNote
                         break;
                     case MarkdownBlockKind.Image:
                         childrenElement.Add(CreateMarkdownImageOe(block, normalIndex));
+                        break;
+                    case MarkdownBlockKind.Paragraph:
+                        childrenElement.Add(CreateParagraphOe(block, normalIndex));
                         break;
                     default:
                         styleIndex = normalIndex;
@@ -725,6 +751,24 @@ namespace OneNoteMarkdown.OneNote
                 default:
                     return "• ";
             }
+        }
+
+        private string BuildBlockquoteText(MarkdownBlock block)
+        {
+            int level = block == null || block.Level < 1 ? 1 : block.Level;
+            string prefix = string.Concat(Enumerable.Repeat(GetTheme().QuotePrefix, level));
+            string text = block == null ? string.Empty : (block.Text ?? string.Empty);
+            Match task = Regex.Match(text, "^[-+*]\\s+\\[( |x|X)\\]\\s+(.+)$");
+            if (task.Success)
+            {
+                text = (string.Equals(task.Groups[1].Value, "x", StringComparison.OrdinalIgnoreCase) ? "☑ " : "☐ ")
+                    + task.Groups[2].Value;
+            }
+            else
+            {
+                text = Regex.Replace(text, "^[-+*]\\s+", "• ");
+            }
+            return prefix + text;
         }
 
         private static XElement EnsureOeChildren(XElement oe)
@@ -809,6 +853,32 @@ namespace OneNoteMarkdown.OneNote
             }
 
             return CreateStyledOe(fallbackText, styleIndex, true, false);
+        }
+
+        private XElement CreateParagraphOe(MarkdownBlock block, int styleIndex)
+        {
+            string text = block == null ? string.Empty : (block.Text ?? string.Empty);
+            if (GetTheme().EnableLatexToImage && InlineLatexRegex.IsMatch(text))
+            {
+                LatexImageRenderer renderer = new LatexImageRenderer();
+                byte[] pngBytes;
+                int pixelWidth;
+                int pixelHeight;
+                string error;
+                if (renderer.TryRenderInlineTextToPng(
+                    text,
+                    GetTheme().DefaultFontFamily,
+                    GetTheme().ParagraphFontSize,
+                    out pngBytes,
+                    out pixelWidth,
+                    out pixelHeight,
+                    out error))
+                {
+                    return CreateImageOe(pngBytes, pixelWidth, pixelHeight, styleIndex, text);
+                }
+                Logger.Warn("CreateParagraphOe: inline LaTeX render failed; source retained. " + error);
+            }
+            return CreateStyledOe(text, styleIndex, false, true);
         }
 
         private XElement CreateImageOe(byte[] imageBytes, int pixelWidth, int pixelHeight, int styleIndex, string alt)
@@ -1003,7 +1073,9 @@ namespace OneNoteMarkdown.OneNote
             // SAFETY INVARIANT: <one:T> CDATA must never receive raw HTML the
             // renderer did not produce itself. This method always HtmlEncodes the
             // caller's text and only converts line breaks into <br>.
-            string normalized = (content ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n');
+            string normalized = WebUtility.HtmlDecode(content ?? string.Empty)
+                .Replace("\r\n", "\n")
+                .Replace('\r', '\n');
             if (!preserveWhitespace)
             {
                 normalized = normalized.Trim();
@@ -1028,7 +1100,13 @@ namespace OneNoteMarkdown.OneNote
             if (string.IsNullOrEmpty(encoded)) return string.Empty;
 
             List<string> codeReplacements = new List<string>();
-            string protectedText = InlineCodeRegex.Replace(encoded, delegate(Match m)
+            List<string> escapedReplacements = new List<string>();
+            string escapedText = EscapedMarkdownRegex.Replace(encoded, delegate(Match m)
+            {
+                escapedReplacements.Add(m.Groups[1].Value);
+                return "@@ESCAPED" + (escapedReplacements.Count - 1).ToString(CultureInfo.InvariantCulture) + "@@";
+            });
+            string protectedText = InlineCodeRegex.Replace(escapedText, delegate(Match m)
             {
                 string inner = m.Groups[1].Value;
                 string replacement = "<span style=\"font-family:Consolas;background-color:#f3f3f3;\">" + inner + "</span>";
@@ -1061,11 +1139,15 @@ namespace OneNoteMarkdown.OneNote
             protectedText = HighlightRegex.Replace(protectedText, "<span style=\"background-color:#ffff00;\">$1</span>");
             protectedText = UnderlineRegex.Replace(protectedText, "<span style=\"text-decoration:underline;\">$1</span>");
             protectedText = ItalicRegex.Replace(protectedText, "<span style=\"font-style:italic;\">$1</span>");
-            protectedText = InlineLatexRegex.Replace(protectedText, "<span style=\"font-family:'Cambria Math';\">$1</span>");
-
             for (int i = 0; i < codeReplacements.Count; i++)
             {
                 protectedText = protectedText.Replace("@@CODE" + i.ToString(CultureInfo.InvariantCulture) + "@@", codeReplacements[i]);
+            }
+            for (int i = 0; i < escapedReplacements.Count; i++)
+            {
+                protectedText = protectedText.Replace(
+                    "@@ESCAPED" + i.ToString(CultureInfo.InvariantCulture) + "@@",
+                    escapedReplacements[i]);
             }
 
             return protectedText;
@@ -1564,7 +1646,7 @@ namespace OneNoteMarkdown.OneNote
                             oe = CreateStyledOe(text, styleIndex, false, false);
                             break;
                         case MarkdownBlockKind.Blockquote:
-                            text = GetTheme().QuotePrefix + (block.Text ?? string.Empty);
+                            text = BuildBlockquoteText(block);
                             oe = CreateStyledOe(text, normalIndex, false, true);
                             break;
                         case MarkdownBlockKind.HorizontalRule:
@@ -1575,6 +1657,9 @@ namespace OneNoteMarkdown.OneNote
                             break;
                         case MarkdownBlockKind.Image:
                             oe = CreateMarkdownImageOe(block, normalIndex);
+                            break;
+                        case MarkdownBlockKind.Paragraph:
+                            oe = CreateParagraphOe(block, normalIndex);
                             break;
                         default:
                             text = block.Text ?? string.Empty;

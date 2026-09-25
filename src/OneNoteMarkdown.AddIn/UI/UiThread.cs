@@ -8,7 +8,7 @@ namespace OneNoteMarkdown.UI
     public static class UiThread
     {
         private static Thread _thread;
-        private static Form _pumpForm;
+        private static UiAnchorWindow _anchor;
         private static volatile SynchronizationContext _syncContext;
         private static readonly object _gate = new object();
         private static ManualResetEventSlim _ready;
@@ -37,35 +37,39 @@ namespace OneNoteMarkdown.UI
 
         private static void ThreadProc()
         {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            _pumpForm = new Form
+            UiAnchorWindow anchor = null;
+            WindowsFormsSynchronizationContext context = null;
+            ManualResetEventSlim ready = _ready;
+            try
             {
-                FormBorderStyle = FormBorderStyle.None,
-                ShowInTaskbar   = false,
-                StartPosition   = FormStartPosition.Manual,
-                Location        = new System.Drawing.Point(-32000, -32000),
-                Size            = new System.Drawing.Size(1, 1),
-                Opacity         = 0,
-                Visible         = false
-            };
-
-            _pumpForm.Load += delegate
-            {
-                _pumpForm.Visible = false;
-                _syncContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
-                _ready.Set();
-            };
-
-            IntPtr handle = _pumpForm.Handle;
-            GC.KeepAlive(handle);
-            if (_syncContext == null)
-            {
-                _syncContext = new WindowsFormsSynchronizationContext();
-                _ready.Set();
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                context = new WindowsFormsSynchronizationContext();
+                SynchronizationContext.SetSynchronizationContext(context);
+                anchor = new UiAnchorWindow();
+                _anchor = anchor;
+                _syncContext = context;
+                if (ready != null) ready.Set();
+                Application.Run();
             }
-
-            Application.Run(_pumpForm);
+            catch (Exception ex)
+            {
+                Logger.Error("UiThread message pump failed", ex);
+                if (ready != null && !ready.IsSet) ready.Set();
+            }
+            finally
+            {
+                if (anchor != null)
+                {
+                    try { anchor.Dispose(); }
+                    catch { }
+                }
+                if (context != null)
+                {
+                    try { context.Dispose(); }
+                    catch { }
+                }
+            }
         }
 
         /// <summary>
@@ -99,7 +103,7 @@ namespace OneNoteMarkdown.UI
                 EnsureStarted();
                 ManualResetEventSlim ready = _ready;
                 if (ready != null) ready.Wait(5000);
-                return _pumpForm;
+                return _anchor;
             }
         }
 
@@ -110,33 +114,61 @@ namespace OneNoteMarkdown.UI
         /// </summary>
         public static void Shutdown()
         {
+            Thread thread;
+            SynchronizationContext context;
+            ManualResetEventSlim ready;
             lock (_gate)
             {
-                if (_pumpForm != null && !_pumpForm.IsDisposed)
-                {
-                    try { _pumpForm.Invoke((Action)(() => _pumpForm.Close())); }
-                    catch (Exception ex) { Logger.Error("UiThread Shutdown: close pump form failed", ex); }
-                }
-
-                if (_thread != null && _thread.IsAlive)
-                {
-                    try { _thread.Join(3000); }
-                    catch (Exception ex) { Logger.Error("UiThread Shutdown: thread join failed", ex); }
-                }
-
-                // Dispose the ManualResetEventSlim to release unmanaged resources.
-                ManualResetEventSlim ready = _ready;
-                _ready = null;
-                if (ready != null)
-                {
-                    try { ready.Dispose(); }
-                    catch { }
-                }
-
+                thread = _thread;
+                context = _syncContext;
+                ready = _ready;
                 _thread = null;
-                _pumpForm = null;
                 _syncContext = null;
-                Logger.Info("UiThread shut down");
+                _anchor = null;
+                _ready = null;
+            }
+
+            if (context != null)
+            {
+                try { context.Post(_ => Application.ExitThread(), null); }
+                catch (Exception ex) { Logger.Error("UiThread Shutdown: exit pump failed", ex); }
+            }
+            if (thread != null && thread.IsAlive && !ReferenceEquals(Thread.CurrentThread, thread))
+            {
+                try { thread.Join(3000); }
+                catch (Exception ex) { Logger.Error("UiThread Shutdown: thread join failed", ex); }
+            }
+            if (ready != null)
+            {
+                try { ready.Dispose(); }
+                catch { }
+            }
+            Logger.Info("UiThread shut down");
+        }
+
+        private sealed class UiAnchorWindow : NativeWindow, IWin32Window, IDisposable
+        {
+            private const int WsPopup = unchecked((int)0x80000000);
+            private const int WsExToolWindow = 0x00000080;
+            private const int WsExNoActivate = 0x08000000;
+
+            public UiAnchorWindow()
+            {
+                CreateHandle(new CreateParams
+                {
+                    Caption = "OneNoteMarkdown.UiAnchor",
+                    Style = WsPopup,
+                    ExStyle = WsExToolWindow | WsExNoActivate,
+                    X = -32000,
+                    Y = -32000,
+                    Width = 1,
+                    Height = 1
+                });
+            }
+
+            public void Dispose()
+            {
+                DestroyHandle();
             }
         }
     }

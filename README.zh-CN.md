@@ -10,9 +10,9 @@
 
 请从仓库的 [Releases](https://github.com/oldding/OneNote-markdown/releases) 页面下载：
 
-- `OneNoteMarkdownSetup-1.2.1-fix-x86.exe`：适用于 32 位 OneNote
-- `OneNoteMarkdownSetup-1.2.1-fix-x64.exe`：适用于 x64 OneNote
-- `OneNoteMarkdownSetup-1.2.1-fix-arm64.exe`：适用于 Windows 11 原生 Arm64 OneNote，要求 .NET Framework 4.8.1
+- `OneNoteMarkdownSetup-1.2.1-fix.1-x86.exe`：适用于 32 位 OneNote
+- `OneNoteMarkdownSetup-1.2.1-fix.1-x64.exe`：适用于 x64 OneNote
+- `OneNoteMarkdownSetup-1.2.1-fix.1-arm64.exe`：适用于 Windows 11 原生 Arm64 OneNote，要求 .NET Framework 4.8.1
 
 > 安装包必须匹配 **OneNote 的位数**，不是 Windows 的位数。64 位 Windows 也可能安装了 32 位 OneNote。
 
@@ -40,9 +40,9 @@
 ## 使用方法
 
 1. 查看 OneNote 的位数：`文件 → 帐户 → 关于 OneNote`
-2. 32 位 OneNote 安装 `OneNoteMarkdownSetup-1.2.1-fix-x86.exe`
-3. x64 OneNote 安装 `OneNoteMarkdownSetup-1.2.1-fix-x64.exe`
-4. 原生 Arm64 OneNote 安装 `OneNoteMarkdownSetup-1.2.1-fix-arm64.exe`
+2. 32 位 OneNote 安装 `OneNoteMarkdownSetup-1.2.1-fix.1-x86.exe`
+3. x64 OneNote 安装 `OneNoteMarkdownSetup-1.2.1-fix.1-x64.exe`
+4. 原生 Arm64 OneNote 安装 `OneNoteMarkdownSetup-1.2.1-fix.1-arm64.exe`
 4. 安装后，OneNote 功能区会出现 "Markdown" 选项卡
 5. 在页面中编写 Markdown 文本，点击"渲染整页"、"渲染正文框"或"渲染选区"
 6. 对同一来源再次渲染会更新关联预览，不会重复追加
@@ -82,9 +82,9 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 
 构建完成后会生成：
 
-- `src/OneNoteMarkdown.Installer/Output/OneNoteMarkdownSetup-1.2.1-fix-x86.exe`
-- `src/OneNoteMarkdown.Installer/Output/OneNoteMarkdownSetup-1.2.1-fix-x64.exe`
-- `src/OneNoteMarkdown.Installer/Output/OneNoteMarkdownSetup-1.2.1-fix-arm64.exe`
+- `src/OneNoteMarkdown.Installer/Output/OneNoteMarkdownSetup-1.2.1-fix.1-x86.exe`
+- `src/OneNoteMarkdown.Installer/Output/OneNoteMarkdownSetup-1.2.1-fix.1-x64.exe`
+- `src/OneNoteMarkdown.Installer/Output/OneNoteMarkdownSetup-1.2.1-fix.1-arm64.exe`
 
 GitHub Actions 的每次构建也会上传同名的 x86/x64/Arm64 安装包。
 

@@ -23,7 +23,7 @@ namespace OneNoteMarkdown.Features
         private static Thread _pumpThread;
         private static volatile bool _running;
         private static LowLevelKeyboardProc _proc;
-        private static Form _pumpForm;
+        private static SynchronizationContext _pumpContext;
         private static System.Threading.Timer _renderTimer;
         private static int _generation;
 
@@ -62,7 +62,7 @@ namespace OneNoteMarkdown.Features
         {
             IntPtr hook;
             System.Threading.Timer timer;
-            Form pumpForm;
+            SynchronizationContext pumpContext;
             Thread pumpThread;
             lock (Gate)
             {
@@ -72,10 +72,10 @@ namespace OneNoteMarkdown.Features
                 _hook = IntPtr.Zero;
                 timer = _renderTimer;
                 _renderTimer = null;
-                pumpForm = _pumpForm;
+                pumpContext = _pumpContext;
                 pumpThread = _pumpThread;
                 _pumpThread = null;
-                _pumpForm = null;
+                _pumpContext = null;
                 _proc = null;
             }
 
@@ -89,9 +89,9 @@ namespace OneNoteMarkdown.Features
                 try { UnhookWindowsHookEx(hook); }
                 catch (Exception ex) { Logger.Error("EnterHook UnhookWindowsHookEx failed", ex); }
             }
-            if (pumpForm != null && !pumpForm.IsDisposed)
+            if (pumpContext != null)
             {
-                try { pumpForm.BeginInvoke((Action)(() => pumpForm.Close())); }
+                try { pumpContext.Post(_ => Application.ExitThread(), null); }
                 catch { }
             }
             if (pumpThread != null && pumpThread.IsAlive && !ReferenceEquals(Thread.CurrentThread, pumpThread))
@@ -125,51 +125,41 @@ namespace OneNoteMarkdown.Features
 
         private static void PumpThreadProc()
         {
+            WindowsFormsSynchronizationContext context = null;
             try
             {
-                using (_pumpForm = new Form
+                context = new WindowsFormsSynchronizationContext();
+                SynchronizationContext.SetSynchronizationContext(context);
+
+                IntPtr hMod = ResolveModuleHandle();
+                IntPtr installedHook = SetWindowsHookEx(WH_KEYBOARD_LL, _proc, hMod, 0);
+                if (installedHook == IntPtr.Zero)
                 {
-                    FormBorderStyle = FormBorderStyle.None,
-                    ShowInTaskbar = false,
-                    StartPosition = FormStartPosition.Manual,
-                    Location = new System.Drawing.Point(-32000, -32000),
-                    Size = new System.Drawing.Size(1, 1),
-                    Opacity = 0,
-                    Visible = false
-                })
-                {
-                    _pumpForm.Load += (_, _) =>
-                    {
-                        IntPtr hMod = ResolveModuleHandle();
-                        IntPtr installedHook = SetWindowsHookEx(WH_KEYBOARD_LL, _proc, hMod, 0);
-                        if (installedHook == IntPtr.Zero)
-                        {
-                            int err = Marshal.GetLastWin32Error();
-                            Logger.Error("EnterHook SetWindowsHookEx(WH_KEYBOARD_LL) failed, err=" + err +
-                                ", hMod=" + hMod.ToString("X"), null);
-                            _running = false;
-                            _pumpForm.Close();
-                            return;
-                        }
-
-                        bool keepHook;
-                        lock (Gate)
-                        {
-                            keepHook = _running;
-                            if (keepHook) _hook = installedHook;
-                        }
-                        if (!keepHook)
-                        {
-                            UnhookWindowsHookEx(installedHook);
-                            _pumpForm.Close();
-                            return;
-                        }
-
-                        Logger.Info("EnterHook installed (global LL hook, hMod=" + hMod.ToString("X") + ")");
-                    };
-
-                    Application.Run(_pumpForm);
+                    int err = Marshal.GetLastWin32Error();
+                    Logger.Error("EnterHook SetWindowsHookEx(WH_KEYBOARD_LL) failed, err=" + err +
+                        ", hMod=" + hMod.ToString("X"), null);
+                    _running = false;
+                    return;
                 }
+
+                bool keepHook;
+                lock (Gate)
+                {
+                    keepHook = _running;
+                    if (keepHook)
+                    {
+                        _hook = installedHook;
+                        _pumpContext = context;
+                    }
+                }
+                if (!keepHook)
+                {
+                    UnhookWindowsHookEx(installedHook);
+                    return;
+                }
+
+                Logger.Info("EnterHook installed (global LL hook, hMod=" + hMod.ToString("X") + ")");
+                Application.Run();
             }
             catch (Exception ex)
             {
@@ -182,6 +172,11 @@ namespace OneNoteMarkdown.Features
                     try { UnhookWindowsHookEx(_hook); }
                     catch { }
                     _hook = IntPtr.Zero;
+                }
+                if (context != null)
+                {
+                    try { context.Dispose(); }
+                    catch { }
                 }
                 Logger.Info("EnterHook pump thread exited");
             }
