@@ -78,7 +78,8 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 if ($ArmCompatibilityValidation) {
-    & "$root\tests\Test-ManagedPayload.ps1"
+    & powershell -NoProfile -ExecutionPolicy Bypass -File "$root\tests\Test-ManagedPayload.ps1"
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     $outputPath = "bin\$Configuration\arm-anycpu-probe\"
     & $msbuild "$root\src\OneNoteMarkdown.AddIn\OneNoteMarkdown.AddIn.csproj" `
         /t:Rebuild `
