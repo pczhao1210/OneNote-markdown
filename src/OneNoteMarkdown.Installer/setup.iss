@@ -36,13 +36,25 @@
   #error Unsupported InstallerArch
 #endif
 
-#define AddInOutput "..\OneNoteMarkdown.AddIn\bin\" + BuildConfiguration + "\" + InstallerSuffix
+#ifdef ArmCompatibilityValidation
+  #if InstallerArch != "arm64"
+    #error ARM compatibility validation requires the ARM64 installer branch
+  #endif
+  #if Pos("-armcompat.", ReleaseName) == 0
+    #error ARM compatibility validation requires an explicit armcompat prerelease name
+  #endif
+  #define AddInOutput "..\OneNoteMarkdown.AddIn\bin\" + BuildConfiguration + "\arm-anycpu-probe"
+  #define DisplayName "OneNote Markdown (EXPERIMENTAL ARM AnyCPU)"
+#else
+  #define AddInOutput "..\OneNoteMarkdown.AddIn\bin\" + BuildConfiguration + "\" + InstallerSuffix
+  #define DisplayName "OneNote Markdown"
+#endif
 
 [Setup]
 AppId={{7D0C9CB6-5D83-4E17-89D5-1C8A285F52B4}
-AppName=OneNote Markdown
+AppName={#DisplayName}
 AppVersion={#ReleaseName}
-AppVerName=OneNote Markdown {#ReleaseName}
+AppVerName={#DisplayName} {#ReleaseName}
 AppPublisher=OneNote Markdown
 DefaultDirName={#InstallerDefaultDir}
 DefaultGroupName=OneNote Markdown
@@ -141,6 +153,10 @@ begin
   begin
     MsgBox('需要先安装 {#RequiredDotNetName} 才能继续安装 OneNote Markdown。', mbCriticalError, MB_OK);
   end;
+#ifdef ArmCompatibilityValidation
+  if Result then
+    Result := MsgBox('实验性 ARM AnyCPU 诊断包，不是 ARM64 原生 DLL，也不是已确认的 ARM64EC OneNote 修复。请先关闭 OneNote 并卸载旧版；不能并排安装。继续前请阅读测试与回滚说明。', mbConfirmation, MB_YESNO) = IDYES;
+#endif
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

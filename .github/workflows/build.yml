@@ -4,7 +4,7 @@ env:
   RELEASE_NAME: 1.2.1-fix.4
 
 permissions:
-  contents: write
+  contents: read
 
 on:
   push:
@@ -12,10 +12,18 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      arm_compatibility_validation:
+        description: 'Build ONLY experimental ARM AnyCPU probe (not hardware/Office validation)'
+        type: boolean
+        default: false
 
 jobs:
   build:
+    if: github.event_name != 'workflow_dispatch' || !inputs.arm_compatibility_validation
     runs-on: windows-latest
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -55,3 +63,22 @@ jobs:
             src/OneNoteMarkdown.Installer/Output/OneNoteMarkdownSetup-${{ env.RELEASE_NAME }}-arm64.exe
           name: ${{ env.RELEASE_NAME }}
           generate_release_notes: true
+
+  arm-compatibility-validation:
+    if: github.event_name == 'workflow_dispatch' && inputs.arm_compatibility_validation
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build prerequisites
+        run: choco install innosetup netfx-4.8.1-devpack --no-progress -y
+      - name: Build experimental package and inspect managed metadata (x64 runner only)
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File .\build.ps1 -ArmCompatibilityValidation
+      - name: Upload experimental installer, uninstalled payload, diagnostics and checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: OneNoteMarkdown-1.2.1-armcompat.1-arm-anycpu-probe
+          path: src/OneNoteMarkdown.Installer/Output/arm-anycpu-probe/
+          if-no-files-found: error
