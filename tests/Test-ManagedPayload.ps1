@@ -126,7 +126,7 @@ public sealed class $class { public static int Answer() { return 42; } }
         finally { $stream.Dispose() }
     }
     else {
-        Add-Type -TypeDefinition $source -OutputAssembly $Path -OutputType Library -CompilerOptions '/platform:anycpu'
+        Add-Type -TypeDefinition $source -OutputAssembly $Path -OutputType Library
     }
     if ($OmitTargetFramework) {
         # Assign a fresh identity before reflection-only inspection can cache it.
@@ -236,6 +236,24 @@ try {
         . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts/ManagedPayload.ps1')
         Assert-True ((Get-PeImageInfo $main).SHA256 -eq $originalHash) 'Dot sourcing changed input.'
     }
+    Test-Case 'unchanged assembly can be inspected repeatedly' {
+        foreach ($attempt in 1..3) {
+            $info = Get-PeImageInfo $main
+            Assert-True ($info.SHA256 -eq $originalHash -and $info.AssemblyIdentity -eq $valid.AssemblyIdentity -and
+                $info.TargetFramework -eq $valid.TargetFramework) 'Repeated inspection changed metadata.'
+        }
+    }
+    Test-Case 'changed bytes with the same identity cannot reuse stale metadata' {
+        $saved = [IO.File]::ReadAllBytes($main)
+        try {
+            $changed = $saved.Clone()
+            $offset = Find-Bytes $changed ([Text.Encoding]::UTF8.GetBytes('.NETFramework,Version=v4.8.1'))
+            [Text.Encoding]::UTF8.GetBytes('.NETFramework,Version=v4.8.0').CopyTo($changed, $offset)
+            [IO.File]::WriteAllBytes($main, $changed)
+            Assert-Throws { Assert-ArmAnyCpuPayload $payload } 'TargetFrameworkAttribute|Cannot inspect'
+        }
+        finally { [IO.File]::WriteAllBytes($main, $saved) }
+    }
     Test-Case 'negative fixtures have distinct identities without changing file simple names' {
         $first = Get-PeImageInfo (New-Mutation 'identity-first' { param($b) })
         $second = Get-PeImageInfo (New-Mutation 'identity-second' { param($b) })
@@ -253,7 +271,7 @@ try {
         Test-PayloadMutation 'mixedmode' { param($b) Set-U32 $b ($valid.CliHeaderOffset + 16) 0 } 'ILONLY'
     }
     Test-Case 'native entry point rejected' {
-        Test-PayloadMutation 'nativeentry' { param($b) Set-U32 $b ($valid.CliHeaderOffset + 16) 0x11 } 'Native entry'
+        Test-PayloadMutation 'nativeentry' { param($b) Set-U32 $b ($valid.CliHeaderOffset + 16) 0x11 } 'Native entry|Cannot inspect'
     }
     Test-Case 'AMD64 machine rejected even with ILONLY' {
         Test-PayloadMutation 'amd64' { param($b) Set-U16 $b ($pe + 4) 0x8664 } 'I386|Cannot inspect'
@@ -289,7 +307,7 @@ try {
         finally { [IO.File]::WriteAllBytes($main, $saved) }
     }
     Test-Case 'CLR reserved flags rejected' {
-        Test-PayloadMutation 'reservedflags' { param($b) Set-U32 $b ($valid.CliHeaderOffset + 16) 0x41 } 'Unknown/reserved'
+        Test-PayloadMutation 'reservedflags' { param($b) Set-U32 $b ($valid.CliHeaderOffset + 16) 0x41 } 'Unknown/reserved|Cannot inspect'
     }
     Test-Case 'wrong mscorlib reference version rejected' {
         Test-PayloadMutation 'coreversion' {

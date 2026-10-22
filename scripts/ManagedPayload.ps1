@@ -37,6 +37,9 @@ namespace OneNoteMarkdown {
         private byte[] bytes;
         private uint headers;
         private readonly List<uint[]> sections = new List<uint[]>();
+#if !CORECLR
+        private static readonly Dictionary<string, Assembly> metadataAssemblies = new Dictionary<string, Assembly>();
+#endif
         private static void Require(bool valid, string message) { if (!valid) throw new BadImageFormatException(message); }
         private void Range(long p, long n, string label) {
             Require(p >= 0 && n >= 0 && p <= bytes.LongLength && n <= bytes.LongLength - p, "Truncated or out-of-range " + label + ".");
@@ -165,15 +168,19 @@ namespace OneNoteMarkdown {
                     ((entry >> 24) == 6 && (entry & 0xffffff) > 0 && (entry & 0xffffff) <= md.MethodDefinitions.Count), "Invalid managed entry point token.");
             }
 #else
-            // Loading bytes avoids ReflectionOnlyLoadFrom's path/identity cache
-            // when a build is rebuilt and validated again in the same process.
             ResolveEventHandler resolve = delegate(object sender, ResolveEventArgs args) {
                 string local = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(info.Path), new AssemblyName(args.Name).Name + ".dll");
                 return File.Exists(local) ? Assembly.ReflectionOnlyLoadFrom(local) : Assembly.ReflectionOnlyLoad(args.Name);
             };
             AppDomain.CurrentDomain.ReflectionOnlyAssemblyResolve += resolve;
             try {
-                Assembly assembly = Assembly.ReflectionOnlyLoad(bytes);
+                Assembly assembly;
+                lock (metadataAssemblies) {
+                    if (!metadataAssemblies.TryGetValue(info.SHA256, out assembly)) {
+                        assembly = Assembly.ReflectionOnlyLoad(bytes);
+                        metadataAssemblies.Add(info.SHA256, assembly);
+                    }
+                }
                 info.MetadataVersion = assembly.ImageRuntimeVersion;
                 if ((info.CorFlags.Value & 0x10) == 0 && D(info.CliHeaderOffset + 20) != 0)
                     Require(assembly.EntryPoint != null, "Invalid managed entry point token.");
