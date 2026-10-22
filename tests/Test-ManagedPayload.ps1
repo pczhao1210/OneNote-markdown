@@ -92,13 +92,16 @@ function Get-TestStreamOffset {
 }
 
 function New-FixtureAssembly {
-    param([string]$Path, [string]$Framework = '.NETFramework,Version=v4.8.1')
+    param([string]$Path, [string]$Framework = '.NETFramework,Version=v4.8.1', [switch]$OmitTargetFramework)
     $class = 'Fixture_' + [Guid]::NewGuid().ToString('N')
+    $frameworkAttribute = if ($OmitTargetFramework) { '' } else {
+        '[assembly: TargetFramework("{0}", FrameworkDisplayName = "Regression fixture")]' -f $Framework
+    }
     $source = @"
 using System.Reflection;
 using System.Runtime.Versioning;
 [assembly: AssemblyVersion("12345.23456.34567.45678")]
-[assembly: TargetFramework("$Framework", FrameworkDisplayName = "Regression fixture")]
+$frameworkAttribute
 [assembly: ${class}Trap]
 public sealed class ${class}TrapAttribute : System.Attribute {
     public ${class}TrapAttribute() { throw new System.Exception("Attribute constructors must never run during inspection."); }
@@ -125,6 +128,12 @@ public sealed class $class { public static int Answer() { return 42; } }
     else {
         Add-Type -TypeDefinition $source -OutputAssembly $Path -OutputType Library -CompilerOptions '/platform:anycpu'
     }
+    if ($OmitTargetFramework) {
+        # Assign a fresh identity before reflection-only inspection can cache it.
+        $bytes = [IO.File]::ReadAllBytes($Path)
+        Set-FixtureMutationIdentity $bytes
+        [IO.File]::WriteAllBytes($Path, $bytes)
+    }
     $info = Get-PeImageInfo $Path
     # On CoreCLR, Roslyn's trivial fixture references System.Runtime rather than
     # mscorlib. Retarget this UNSIGNED TEST FIXTURE's single AssemblyRef to the
@@ -148,7 +157,12 @@ public sealed class $class { public static int Answer() { return 42; } }
     }
     $info = Get-PeImageInfo $Path
     Assert-True ($info.AssemblyReferences[0].Name -eq 'mscorlib') 'Fixture must have a real Framework AssemblyRef.'
-    Assert-True ($info.TargetFramework -eq $Framework) 'Fixture TargetFramework did not round-trip.'
+    if ($OmitTargetFramework) {
+        Assert-True ($null -eq $info.TargetFramework) 'Fixture must have no TargetFrameworkAttribute.'
+    }
+    else {
+        Assert-True ($info.TargetFramework -eq $Framework) 'Fixture TargetFramework did not round-trip.'
+    }
     Assert-True ($info.AssemblyIdentity -eq [Reflection.AssemblyName]::GetAssemblyName($Path).FullName) 'Fixture identity must be CLR-readable.'
 }
 
@@ -263,11 +277,16 @@ try {
         } 'TargetFrameworkAttribute'
     }
     Test-Case 'missing main TargetFrameworkAttribute rejected' {
-        Test-PayloadMutation 'missingframework' {
-            param($b)
-            $p = Find-Bytes $b ([Text.Encoding]::UTF8.GetBytes('TargetFrameworkAttribute'))
-            $b[$p + 23] = [byte][char]'x'
-        } 'TargetFrameworkAttribute'
+        $directory = Join-Path $work 'missingframework'
+        $null = New-Item -ItemType Directory -Path $directory
+        $path = Join-Path $directory 'OneNoteMarkdown.AddIn.dll'
+        New-FixtureAssembly $path -OmitTargetFramework
+        $saved = [IO.File]::ReadAllBytes($main)
+        try {
+            Copy-Item -LiteralPath $path -Destination $main -Force
+            Assert-Throws { Assert-ArmAnyCpuPayload $payload } 'TargetFrameworkAttribute'
+        }
+        finally { [IO.File]::WriteAllBytes($main, $saved) }
     }
     Test-Case 'CLR reserved flags rejected' {
         Test-PayloadMutation 'reservedflags' { param($b) Set-U32 $b ($valid.CliHeaderOffset + 16) 0x41 } 'Unknown/reserved'
